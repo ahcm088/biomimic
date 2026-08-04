@@ -4,10 +4,10 @@
 ^results$
 ^examples$
 ^LICENSE\.md$
+^\.git$
 ^\.gitignore$
 ^.*\.Rproj$
 ^\.Rproj\.user$
-^README\.Rmd$
 ^_pkgdown\.yml$
 ^docs$
 ^codecov\.yml$

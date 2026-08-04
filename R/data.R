@@ -22,8 +22,8 @@
 #'
 #' @details This is a CRAN-sized subset (400 of the 8,323 features) intended
 #'   for examples and for reproducing the package figures; it preserves the
-#'   AD group signal and the age/sex covariates. The full dataset is available
-#'   from the package's GitHub repository.
+#'   AD group signal and the age/sex covariates. The full dataset (8,323
+#'   features) can be obtained from GEO accession \code{GSE62283}.
 #'
 #' @source Gene Expression Omnibus accession \code{GSE62283}.
 #'

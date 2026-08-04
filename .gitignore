@@ -1,0 +1,35 @@
+# History and session data
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+.Renviron
+
+# RStudio
+.Rproj.user/
+
+# R CMD build / check artefacts
+*.Rcheck/
+*.tar.gz
+*.Rout
+
+# Compiled objects
+*.o
+*.so
+*.dll
+
+# knitr / vignette caches
+*_cache/
+*_files/
+*.utf8.md
+*.knit.md
+
+# pkgdown
+docs/
+
+# Local analysis output
+results/
+
+# OS
+.DS_Store
+Thumbs.db

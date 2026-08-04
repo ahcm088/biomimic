@@ -1,0 +1,163 @@
+---
+title: "Getting started with biomimic"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with biomimic}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4.5,
+  dpi = 96
+)
+```
+
+## The problem
+
+The standard way to analyse an antibodyome experiment is borrowed from
+transcriptomics: test each protein separately for a difference between groups,
+then correct for testing thousands of hypotheses. It works when a few proteins
+have large individual effects. It struggles when the signal is spread across
+many proteins that move together, because the multiple-testing burden grows
+with every protein measured and marginal testing throws away the correlation
+structure that carries the biology.
+
+A MIMIC model asks a different question. Observed proteins are indicators of a
+latent factor — an unobserved immunological state — and the clinical group acts
+on that factor as a regressor. Instead of "which proteins differ?", the model
+answers "does the latent state differ between groups?". One coefficient, one
+test, no multiple-testing correction.
+
+The catch is that structural equation modelling software wants you to name the
+indicators. Choosing 15 out of 8,000 is not something it does, and specifying
+and diagnosing the model assumes SEM training. `biomimic` handles both.
+
+```{r setup}
+library(biomimic)
+```
+
+## The example data
+
+`neuro_antibodyome` is a subset of the ProtoArray data analysed in the paper,
+for the Alzheimer's disease versus control comparison: 137 samples (46 cases,
+91 controls) and 400 autoantibody features, centred and ready to use.
+
+```{r data}
+data(neuro_antibodyome)
+str(neuro_antibodyome, max.level = 1)
+```
+
+The covariate matrix carries an intercept, the group indicator, and age and sex
+as adjustment covariates.
+
+```{r covariates}
+head(neuro_antibodyome$X, 3)
+```
+
+## Running the pipeline
+
+```{r fit}
+fit <- biomimic(neuro_antibodyome$proteins,
+                neuro_antibodyome$X,
+                K = 1,
+                k = 15)
+fit
+```
+
+That single call did three things.
+
+**Stage 1** fitted a variational Bayes factor model with ARD priors to all 400
+features and ranked them by posterior signal-to-noise ratio. ARD shrinks
+irrelevant loadings toward zero, so the ranking reflects contribution to the
+shared latent factor rather than marginal effect size.
+
+**Stage 2** kept the top 15.
+
+**Stage 3** generated `lavaan` syntax for a MIMIC model on those 15 indicators
+and fitted it. You never wrote a line of SEM syntax, but the model is a
+standard one and the full `lavaan` object is available via `fit$lavaan_fit`.
+
+## Reading the results
+
+```{r summary}
+summary(fit)
+```
+
+The line to read is the group effect on the latent pathway. It is negative and
+strongly significant: the latent immunological state is lower in AD than in
+controls, adjusted for age and sex. Age and sex have their own effects on the
+same factor, which is exactly why they belong in the model.
+
+Below that, the loadings show how each protein relates to the pathway. They are
+uniformly high, which is what selection by signal-to-noise ratio is supposed to
+produce — a coherent panel rather than a list of individually striking hits.
+
+## A note on fit indices
+
+The RMSEA above is flagged as poor. That deserves context rather than alarm.
+The conventional cutoffs come from simulations with small, theory-driven models
+and correctly specified indicators. They degrade as the number of indicators
+grows, and high unique variances — expected with heterogeneous proteomic
+indicators — inflate RMSEA and deflate CFI even for correctly specified models.
+With a data-driven indicator set and an exploratory latent factor, treat
+absolute cutoffs with caution and lean on SRMR and CFI alongside them.
+
+```{r gof}
+goodness_of_fit(fit)
+```
+
+## Screening on its own
+
+You do not have to run the whole pipeline. Stage 1 is useful by itself as a
+screening tool:
+
+```{r screening}
+vb <- vb_ard(neuro_antibodyome$proteins, neuro_antibodyome$X, K = 1)
+head(rank_variables(vb), 10)
+```
+
+The `use_gamma` argument turns on the direct-effect extension, which places ARD
+priors on covariate-to-indicator paths as well. It flags proteins whose
+association with the covariate bypasses the latent factor — a step normally
+done by hand from modification indices.
+
+## Measurement invariance
+
+If a latent difference between groups is to mean anything, the measurement
+model has to behave the same way in both. `test_invariance()` fits the
+configural, metric and scalar models and compares them.
+
+```{r invariance, eval = FALSE}
+test_invariance(fit$selection, group_var = "group")
+```
+
+Metric invariance means the loadings are equal across groups; scalar invariance
+adds equal intercepts. Without them, a group difference on the factor could be
+an artefact of the indicators behaving differently in each group.
+
+## Plots
+
+```{r plot-screening}
+plot_screening(fit)
+```
+
+```{r plot-loadings}
+plot_loadings(fit)
+```
+
+```{r plot-effects}
+plot_structural_effects(fit)
+```
+
+## Where to go next
+
+* `?vb_ard` — the screening model, its priors and the Gamma extension.
+* `?build_lavaan_model` — the four model types and the syntax each produces.
+* `?fit_sem` — estimator choice and Stage 3 options.
+* `?network_analysis` — treating the selected panel as a co-expression module.
+* `?simulate_mimic` — simulate data with known structure to evaluate the method.

@@ -40,5 +40,8 @@ Suggests:
     scales,
     igraph,
     ggraph,
-    corpcor
+    corpcor,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
 Config/testthat/edition: 3
