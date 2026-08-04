@@ -1,0 +1,15 @@
+^\.github$
+^data-raw$
+^paper$
+^results$
+^examples$
+^LICENSE\.md$
+^\.gitignore$
+^.*\.Rproj$
+^\.Rproj\.user$
+^README\.Rmd$
+^_pkgdown\.yml$
+^docs$
+^codecov\.yml$
+^.*\.pdf$
+^cran-comments\.md$

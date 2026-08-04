@@ -1,0 +1,44 @@
+Package: biomimic
+Title: VB-ARD Screening Pipeline for High-Dimensional Latent Variable Models
+Version: 0.2.0
+Authors@R: c(
+    person("Alexandre Henrique Carvalho", "Marques", email = "alexandre.marques.088@ufrn.edu.br",
+           role = c("aut", "cre")),
+    person("Dennyson Leandro M.", "Fonseca", role = "aut"),
+    person("Tiberio Azevedo", "Pereira", role = "ctb"),
+    person("Rita Maria Cunha", "de Almeida", role = "ctb"),
+    person("Otavio", "Cabral-Marques", role = "aut"),
+    person("Rodrigo Juliani Siqueira", "Dalmolin", role = "aut")
+    )
+Description: A three-stage pipeline for latent variable modelling in
+    high-dimensional biological data. Stage 1 uses Variational Bayes with
+    Automatic Relevance Determination (VB-ARD) to screen thousands of
+    candidate variables and identify those with strong latent signal.
+    Stage 2 selects the top-k panel and discovers factor structure via
+    SVD + varimax rotation. Stage 3 fits structural equation models (SEM)
+    using 'lavaan', including MIMIC, multi-group CFA, and MIMIC with direct
+    effects. The VB-ARD screener extends the classical factor model with
+    direct-effect coefficients (Gamma), enabling automatic specification of
+    SEM paths. Designed for antibodyome and proteomics differential analysis.
+License: MIT + file LICENSE
+URL: https://github.com/ahcm088/biomimic
+BugReports: https://github.com/ahcm088/biomimic/issues
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends:
+    R (>= 4.1.0)
+Imports:
+    lavaan (>= 0.6-17),
+    ggplot2 (>= 3.4.0),
+    stats,
+    utils
+Suggests:
+    testthat (>= 3.0.0),
+    logger,
+    scales,
+    igraph,
+    ggraph,
+    corpcor
+Config/testthat/edition: 3
