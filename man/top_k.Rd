@@ -4,15 +4,28 @@
 \alias{top_k}
 \title{Select Top-k Variables}
 \usage{
-top_k(fit, k = 15L, gamma_threshold = 3)
+top_k(fit, k = 15L, gamma_threshold = 3, n_boot = 199L, n_cores = NULL)
 }
 \arguments{
 \item{fit}{A fitted \code{vb_ard} object.}
 
 \item{k}{Integer, number of variables to select (default 15).}
 
-\item{gamma_threshold}{Numeric, SNR threshold for flagging direct effects
-(default 3.0). Variables with max SNR_Gamma above this are flagged.}
+\item{gamma_threshold}{SNR threshold for flagging direct effects. Either a
+numeric value (default 3.0) or \code{"bootstrap"}, which calibrates the
+threshold by parametric bootstrap under the fitted model with no direct
+effects (see \code{\link{calibrate_gamma_threshold}}); flagging then
+controls the family-wise error rate at 5 percent over the selected
+panel. The
+numeric default is adequate for cohesive panels (it sits at the top of
+the calibrated range observed in practice), but it is not
+scale-invariant across designs; the bootstrap is the principled choice.}
+
+\item{n_boot}{Integer, bootstrap refits when
+\code{gamma_threshold = "bootstrap"} (default 199).}
+
+\item{n_cores}{Integer, workers for the bootstrap (default all but one
+core; honours \code{BIOMIMIC_NCORES}). Ignored for numeric thresholds.}
 }
 \value{
 A list of class \code{"biomimic_selection"} with components:
@@ -23,6 +36,10 @@ A list of class \code{"biomimic_selection"} with components:
 \item{K}{Number of latent factors}
 \item{indicator_groups}{List of indicator groups (for K >= 2), or NULL}
 \item{direct_effects}{Character vector of variables with high SNR_Gamma}
+\item{gamma_threshold}{The numeric threshold actually applied}
+\item{gamma_calibration}{The
+\code{\link{calibrate_gamma_threshold}} result, or NULL if a numeric
+threshold was supplied}
 \item{fit}{The original VB-ARD fit}
 }
 }

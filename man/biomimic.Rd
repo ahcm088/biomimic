@@ -14,6 +14,8 @@ biomimic(
   group_var = NULL,
   indicator_labels = NULL,
   factor_labels = NULL,
+  gamma_anchor = "auto",
+  gamma_threshold = 3,
   ...
 )
 }
@@ -37,6 +39,22 @@ to biology-friendly labels. If \code{NULL}, original names are used.}
 
 \item{factor_labels}{Character vector of factor names. If \code{NULL},
 defaults are generated.}
+
+\item{gamma_anchor}{Identification anchors for the \code{B}/\code{Gamma}
+split. \code{"auto"} (the default) runs Stage 1 twice: a first pass to
+rank indicators by loading SNR, then \code{\link{select_gamma_anchor}} to
+pick \code{K} anchors, then a second pass with their direct effects held
+at zero. \code{NULL} skips anchoring and reproduces the unanchored,
+prior-regularised model, whose \code{B}/\code{Gamma} split is not
+identified by the likelihood (see \code{\link{vb_ard}}). A character or
+integer vector supplies the anchors directly, in one pass.}
+
+\item{gamma_threshold}{SNR threshold for flagging direct effects, passed to
+\code{\link{top_k}}: a numeric value (default 3.0) or
+\code{"bootstrap"} for a parametric-bootstrap calibration that controls
+the family-wise error rate at 5 percent over the selected panel
+(see \code{\link{calibrate_gamma_threshold}}; adds \code{n_boot} refits
+of the screening model to the runtime).}
 
 \item{...}{Additional arguments passed to \code{vb_ard()}.}
 }

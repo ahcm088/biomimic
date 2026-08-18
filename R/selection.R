@@ -39,6 +39,14 @@ rank_variables <- function(fit, type = c("lambda", "gamma")) {
         }
     }
 
+    keep_rows <- rep(TRUE, nrow(snr_mat))
+    if (type == "gamma" && length(fit$anchor_idx)) {
+        # Anchored indicators have gamma fixed at zero by construction, so they
+        # are not direct-effect candidates and carry an undefined (NA) SNR.
+        keep_rows[fit$anchor_idx] <- FALSE
+        snr_mat <- snr_mat[keep_rows, , drop = FALSE]
+    }
+
     p <- nrow(snr_mat)
     K_or_q <- ncol(snr_mat)
 
@@ -46,7 +54,7 @@ rank_variables <- function(fit, type = c("lambda", "gamma")) {
     snr_max <- apply(snr_mat, 1, max)
 
     df <- data.frame(
-        variable = fit$var_names,
+        variable = fit$var_names[keep_rows],
         snr = snr_max,
         stringsAsFactors = FALSE
     )
@@ -78,8 +86,19 @@ rank_variables <- function(fit, type = c("lambda", "gamma")) {
 #'
 #' @param fit A fitted \code{vb_ard} object.
 #' @param k Integer, number of variables to select (default 15).
-#' @param gamma_threshold Numeric, SNR threshold for flagging direct effects
-#'   (default 3.0). Variables with max SNR_Gamma above this are flagged.
+#' @param gamma_threshold SNR threshold for flagging direct effects. Either a
+#'   numeric value (default 3.0) or \code{"bootstrap"}, which calibrates the
+#'   threshold by parametric bootstrap under the fitted model with no direct
+#'   effects (see \code{\link{calibrate_gamma_threshold}}); flagging then
+#'   controls the family-wise error rate at 5 percent over the selected
+#'   panel. The
+#'   numeric default is adequate for cohesive panels (it sits at the top of
+#'   the calibrated range observed in practice), but it is not
+#'   scale-invariant across designs; the bootstrap is the principled choice.
+#' @param n_boot Integer, bootstrap refits when
+#'   \code{gamma_threshold = "bootstrap"} (default 199).
+#' @param n_cores Integer, workers for the bootstrap (default all but one
+#'   core; honours \code{BIOMIMIC_NCORES}). Ignored for numeric thresholds.
 #'
 #' @return A list of class \code{"biomimic_selection"} with components:
 #' \describe{
@@ -89,11 +108,16 @@ rank_variables <- function(fit, type = c("lambda", "gamma")) {
 #'   \item{K}{Number of latent factors}
 #'   \item{indicator_groups}{List of indicator groups (for K >= 2), or NULL}
 #'   \item{direct_effects}{Character vector of variables with high SNR_Gamma}
+#'   \item{gamma_threshold}{The numeric threshold actually applied}
+#'   \item{gamma_calibration}{The
+#'     \code{\link{calibrate_gamma_threshold}} result, or NULL if a numeric
+#'     threshold was supplied}
 #'   \item{fit}{The original VB-ARD fit}
 #' }
 #'
 #' @export
-top_k <- function(fit, k = 15L, gamma_threshold = 3.0) {
+top_k <- function(fit, k = 15L, gamma_threshold = 3.0,
+                  n_boot = 199L, n_cores = NULL) {
     stopifnot(inherits(fit, "vb_ard"))
     stopifnot(k >= 1L)
 
@@ -102,15 +126,44 @@ top_k <- function(fit, k = 15L, gamma_threshold = 3.0) {
     ranking <- rank_variables(fit, type = "lambda")
     selected_vars <- ranking$variable[seq_len(min(k, nrow(ranking)))]
 
+    # Anchored indicators must (a) be in the panel and (b) come first, so that
+    # Stage 3 fixes its marker loading on an indicator whose direct effect is
+    # already constrained to zero. That is condition (iii) of the direct-effect
+    # identification result: the marker must be a pure indicator.
+    anchors <- fit$gamma_anchor
+    if (length(anchors)) {
+        missing_anchor <- setdiff(anchors, selected_vars)
+        if (length(missing_anchor)) {
+            # Make room by dropping the weakest non-anchor indicators.
+            drop_n <- length(missing_anchor)
+            keepers <- setdiff(selected_vars, anchors)
+            keepers <- keepers[seq_len(max(0L, length(keepers) - drop_n))]
+            selected_vars <- c(intersect(selected_vars, anchors),
+                               missing_anchor, keepers)
+            .log_info("top_k: %d anchor(s) forced into the panel", drop_n)
+        }
+        selected_vars <- c(anchors, setdiff(selected_vars, anchors))
+    }
+
     # Identify direct effects among selected variables
     direct_effects <- character(0)
+    gamma_calibration <- NULL
     if (!is.null(fit$snr_gamma)) {
+        if (identical(gamma_threshold, "bootstrap")) {
+            gamma_calibration <- calibrate_gamma_threshold(
+                fit, variables = selected_vars,
+                n_boot = n_boot, n_cores = n_cores)
+            gamma_threshold <- gamma_calibration$threshold
+        }
+        stopifnot(is.numeric(gamma_threshold),
+                  length(gamma_threshold) == 1L)
         gamma_ranking <- rank_variables(fit, type = "gamma")
         # Only flag selected variables
         sel_gamma <- gamma_ranking[gamma_ranking$variable %in% selected_vars, ]
         direct_effects <- sel_gamma$variable[sel_gamma$snr > gamma_threshold]
-        .log_info("top_k: %d direct effects flagged (gamma_threshold=%.1f)",
-                  length(direct_effects), gamma_threshold)
+        .log_info("top_k: %d direct effects flagged (gamma_threshold=%.2f%s)",
+                  length(direct_effects), gamma_threshold,
+                  if (is.null(gamma_calibration)) "" else ", bootstrap")
     }
 
     # Build data frame for lavaan
@@ -144,6 +197,9 @@ top_k <- function(fit, k = 15L, gamma_threshold = 3.0) {
             K               = fit$K,
             indicator_groups = indicator_groups,
             direct_effects  = direct_effects,
+            gamma_threshold = if (is.null(fit$snr_gamma)) NULL
+                              else gamma_threshold,
+            gamma_calibration = gamma_calibration,
             fit             = fit
         ),
         class = "biomimic_selection"

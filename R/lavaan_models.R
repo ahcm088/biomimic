@@ -120,6 +120,20 @@ build_lavaan_model <- function(selection,
 #'   to biology-friendly labels. If \code{NULL}, original names are used.
 #' @param factor_labels Character vector of factor names. If \code{NULL},
 #'   defaults are generated.
+#' @param gamma_anchor Identification anchors for the \code{B}/\code{Gamma}
+#'   split. \code{"auto"} (the default) runs Stage 1 twice: a first pass to
+#'   rank indicators by loading SNR, then \code{\link{select_gamma_anchor}} to
+#'   pick \code{K} anchors, then a second pass with their direct effects held
+#'   at zero. \code{NULL} skips anchoring and reproduces the unanchored,
+#'   prior-regularised model, whose \code{B}/\code{Gamma} split is not
+#'   identified by the likelihood (see \code{\link{vb_ard}}). A character or
+#'   integer vector supplies the anchors directly, in one pass.
+#' @param gamma_threshold SNR threshold for flagging direct effects, passed to
+#'   \code{\link{top_k}}: a numeric value (default 3.0) or
+#'   \code{"bootstrap"} for a parametric-bootstrap calibration that controls
+#'   the family-wise error rate at 5 percent over the selected panel
+#'   (see \code{\link{calibrate_gamma_threshold}}; adds \code{n_boot} refits
+#'   of the screening model to the runtime).
 #' @param ... Additional arguments passed to \code{vb_ard()}.
 #'
 #' @return A \code{biomimic_fit} object. The VB-ARD fit is accessible via
@@ -131,12 +145,20 @@ biomimic <- function(Y, X, K = 1L, k = 15L,
                      estimator = "MLR",
                      group_var = NULL,
                      indicator_labels = NULL,
-                     factor_labels = NULL, ...) {
+                     factor_labels = NULL,
+                     gamma_anchor = "auto",
+                     gamma_threshold = 3.0, ...) {
     # Stage 1
-    vb_fit <- vb_ard(Y, X, K = K, ...)
+    if (identical(gamma_anchor, "auto")) {
+        pass1   <- vb_ard(Y, X, K = K, ...)
+        anchors <- select_gamma_anchor(pass1, n_anchor = K)
+        vb_fit  <- vb_ard(Y, X, K = K, gamma_anchor = anchors, ...)
+    } else {
+        vb_fit <- vb_ard(Y, X, K = K, gamma_anchor = gamma_anchor, ...)
+    }
 
     # Stage 2
-    selection <- top_k(vb_fit, k = k)
+    selection <- top_k(vb_fit, k = k, gamma_threshold = gamma_threshold)
 
     # Stage 3
     fit_sem(selection, type = model_type, estimator = estimator,
@@ -253,17 +275,31 @@ biomimic <- function(Y, X, K = 1L, k = 15L,
             call. = FALSE)
     }
 
-    # MIMIC + direct effects: identification condition (ii) requires at least
-    # two PURE indicators (no direct path), i.e. |S| <= p - 2.
+    # MIMIC + direct effects: B is identified only if the pure indicators (no
+    # direct path) have loadings of rank K, which needs at least K of them.
+    # We keep the stricter |S| <= p - 2 as the operating rule: it equals the
+    # rank requirement at K = 2 and is deliberately conservative at K = 1,
+    # where a single pure indicator would suffice in principle but leaves no
+    # slack if that indicator turns out to carry a direct effect after all.
     if (type == "direct") {
         n_direct <- length(intersect(selection$direct_effects, vars))
-        if (p - n_direct < 2) {
+        n_pure   <- p - n_direct
+        K_sel    <- selection$K %||% 1L
+        if (n_pure < K_sel) {
             warning(sprintf(
                 paste0("Direct-effect model: %d of %d indicators carry a ",
-                       "direct effect, leaving %d pure indicator(s). ",
-                       "Identification requires at least 2 pure indicators ",
-                       "(|S| <= p - 2); the model may be under-identified."),
-                n_direct, p, p - n_direct), call. = FALSE)
+                       "direct effect, leaving %d pure indicator(s) for %d ",
+                       "factor(s). Identification of B requires at least K ",
+                       "pure indicators with linearly independent loadings; ",
+                       "the model is under-identified."),
+                n_direct, p, n_pure, K_sel), call. = FALSE)
+        } else if (n_pure < 2) {
+            warning(sprintf(
+                paste0("Direct-effect model: only %d pure indicator(s) ",
+                       "remain (|S| = %d of %d). This meets the bare rank ",
+                       "condition but leaves no redundancy; >= 2 is ",
+                       "recommended."),
+                n_pure, n_direct, p), call. = FALSE)
         }
     }
 

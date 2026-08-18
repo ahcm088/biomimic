@@ -24,8 +24,12 @@
 #' @param Y Numeric matrix (n x p) of observed variables.
 #' @param X Numeric matrix (n x q) of covariates (should include intercept).
 #' @param K Integer, number of latent factors (default 1).
-#' @param use_ard Logical, whether to use ARD priors on loadings (default TRUE).
-#'   Recommended FALSE for K > 1.
+#' @param use_ard Logical, whether to use ARD priors on loadings
+#'   (default TRUE). Recommended TRUE for every K: with ARD off, the
+#'   loading precisions stay fixed at a vague constant and the
+#'   direct-effect screening statistic degrades sharply for K >= 2
+#'   (in simulation, its null false-positive rate at the default
+#'   threshold rises several-fold).
 #' @param use_gamma Logical, whether to estimate direct effects Gamma
 #'   (default TRUE).
 #' @param max_iter Maximum number of CAVI iterations (default 500).
@@ -36,7 +40,30 @@
 #'   (default 1e-3 each).
 #' @param a_xi,b_xi Shape and rate hyperparameters for ARD prior on Gamma
 #'   (default 1e-3 each).
+#' @param gamma_anchor Optional character vector of variable names (or integer
+#'   column indices of \code{Y}) whose direct effects are held at exactly zero.
+#'   These \emph{anchor} indicators identify the split between the structural
+#'   coefficients \code{B} and the direct effects \code{Gamma}. Without them
+#'   the split is not identified by the likelihood (see Details), and the
+#'   separation rests on the ARD prior alone. Supply at least \code{K} anchors
+#'   with linearly independent loading vectors; \code{\link{select_gamma_anchor}}
+#'   picks them from a first-pass fit. Default \code{NULL} reproduces the
+#'   unanchored (prior-regularised) behaviour.
 #' @param verbose Logical, print progress (default FALSE).
+#'
+#' @details
+#' \strong{Identification of B versus Gamma.} Marginalising the latent scores
+#' gives \eqn{y_i \mid x_i \sim N((\Lambda B' + \Gamma) x_i,\ \Lambda\Lambda' +
+#' \Psi)}, so the likelihood depends on \code{B} and \code{Gamma} only through
+#' the sum \eqn{\Lambda B' + \Gamma}. For any \eqn{\Delta} (q x K) the pair
+#' \eqn{(B + \Delta,\ \Gamma - \Lambda\Delta')} has an identical likelihood:
+#' a flat direction of dimension \eqn{qK}. \code{Lambda} itself is identified
+#' (up to rotation) from the conditional covariance and is unaffected.
+#'
+#' Fixing \eqn{\gamma_j = 0} for a set \eqn{A} of anchors makes
+#' \eqn{\Pi_A = \Lambda_A B'} and pins \code{B} uniquely whenever
+#' \eqn{\Lambda_A} has rank \code{K} -- hence the requirement of at least
+#' \code{K} anchors with linearly independent loadings.
 #'
 #' @return A list of class \code{"vb_ard"} with components:
 #' \describe{
@@ -82,6 +109,7 @@ vb_ard <- function(Y, X, K = 1L,
                    a_tau = 1e-3, b_tau = 1e-3,
                    a_psi = 1e-3, b_psi = 1e-3,
                    a_xi = 1e-3, b_xi = 1e-3,
+                   gamma_anchor = NULL,
                    verbose = FALSE) {
 
     # --- Input validation ---
@@ -95,6 +123,45 @@ vb_ard <- function(Y, X, K = 1L,
     p <- ncol(Y)
     q <- ncol(X)
     var_names <- colnames(Y) %||% paste0("V", seq_len(p))
+
+    # --- Resolve the identification anchors ---
+    # Without at least K indicators whose direct effects are held at exactly
+    # zero, B and Gamma are not identified by the likelihood: for any
+    # Delta (q x K), (B + Delta, Gamma - Lambda Delta') gives the same
+    # reduced-form mean (Lambda B' + Gamma) X' and the same covariance.
+    # Anchoring K rows of Gamma at zero removes that flat direction.
+    anchor_idx <- integer(0)
+    if (!is.null(gamma_anchor)) {
+        if (!use_gamma) {
+            stop("gamma_anchor requires use_gamma = TRUE.", call. = FALSE)
+        }
+        anchor_idx <- if (is.character(gamma_anchor)) {
+            miss <- setdiff(gamma_anchor, var_names)
+            if (length(miss)) {
+                stop("gamma_anchor not found in colnames(Y): ",
+                     paste(miss, collapse = ", "), call. = FALSE)
+            }
+            match(gamma_anchor, var_names)
+        } else {
+            idx <- as.integer(gamma_anchor)
+            if (any(idx < 1L | idx > p)) {
+                stop("gamma_anchor indices out of range [1, ", p, "].",
+                     call. = FALSE)
+            }
+            idx
+        }
+        anchor_idx <- sort(unique(anchor_idx))
+        if (length(anchor_idx) < K) {
+            warning(sprintf(
+                paste0("Only %d anchor(s) supplied for K = %d factors. ",
+                       "Identification of B requires at least K anchors ",
+                       "whose loading vectors are linearly independent."),
+                length(anchor_idx), K), call. = FALSE)
+        }
+        if (length(anchor_idx) >= p) {
+            stop("gamma_anchor cannot cover every indicator.", call. = FALSE)
+        }
+    }
 
     # Center the indicators. The observation model has no per-indicator
     # intercept (y_ij = lambda_j' h_i + gamma_j' x_i + eps), which is exactly
@@ -141,14 +208,14 @@ vb_ard <- function(Y, X, K = 1L,
 
         # --- Update q(Lambda_j) ---
         res_lam <- .cavi_update_lambda(Y, X, mu_eta, sigma_eta, mu_gamma,
-                                       E_psi_inv, E_tau, n, p, K, use_ard)
+                                       E_psi_inv, E_tau, n, p, K)
         mu_lambda    <- res_lam$mu_lambda
         sigma_lambda <- res_lam$sigma_lambda
 
         # --- Update q(Gamma_j) if requested ---
         if (use_gamma) {
             res_gam <- .cavi_update_gamma(Y, X, mu_eta, mu_lambda, E_psi_inv,
-                                          E_xi, n, p, q, XtX)
+                                          E_xi, n, p, q, XtX, anchor_idx)
             mu_gamma    <- res_gam$mu_gamma
             sigma_gamma <- res_gam$sigma_gamma
         }
@@ -166,7 +233,8 @@ vb_ard <- function(Y, X, K = 1L,
 
         # --- Update q(xi) (ARD on Gamma) ---
         if (use_gamma) {
-            E_xi <- .cavi_update_xi(mu_gamma, sigma_gamma, a_xi, b_xi, p, q)
+            E_xi <- .cavi_update_xi(mu_gamma, sigma_gamma, a_xi, b_xi, p, q,
+                                    anchor_idx)
         }
 
         # --- Update q(psi_j^{-1}) ---
@@ -180,7 +248,8 @@ vb_ard <- function(Y, X, K = 1L,
                                       mu_B, sigma_B, E_psi_inv, E_tau, E_xi,
                                       a_tau, b_tau, a_psi, b_psi,
                                       a_xi, b_xi, sigma_B_sq,
-                                      n, p, q, K, use_ard, use_gamma)
+                                      n, p, q, K, use_ard, use_gamma,
+                                      anchor_idx)
 
         if (verbose && (it %% 50 == 0 || it == 1)) {
             message(sprintf("Iter %d: ELBO = %.2f", it, elbo_vec[it]))
@@ -267,6 +336,10 @@ vb_ard <- function(Y, X, K = 1L,
         sd_gamma <- .extract_posterior_sd_rect(sigma_gamma, p, q)
         snr_gamma <- .compute_snr(mu_gamma, sd_gamma)
         dimnames(snr_gamma) <- list(var_names, colnames(X))
+        # Anchored rows have mu = 0 and sd = 0: the SNR is undefined, not zero.
+        # NA keeps them out of the direct-effect ranking instead of ranking
+        # them last on a fabricated value.
+        if (length(anchor_idx)) snr_gamma[anchor_idx, ] <- NA_real_
     }
 
     structure(
@@ -297,6 +370,9 @@ vb_ard <- function(Y, X, K = 1L,
             X            = X,
             use_ard      = use_ard,
             use_gamma    = use_gamma,
+            gamma_anchor = if (length(anchor_idx)) var_names[anchor_idx]
+                           else NULL,
+            anchor_idx   = anchor_idx,
             E_psi_inv    = E_psi_inv,
             E_tau        = E_tau,
             E_xi         = E_xi,
@@ -397,7 +473,7 @@ vb_ard <- function(Y, X, K = 1L,
 
 #' @noRd
 .cavi_update_lambda <- function(Y, X, mu_eta, sigma_eta, mu_gamma,
-                                E_psi_inv, E_tau, n, p, K, use_ard) {
+                                E_psi_inv, E_tau, n, p, K) {
     # E[h' h] = sum_i (mu_i mu_i' + Sigma_eta) = H'H + n * Sigma_eta
     E_HtH <- crossprod(mu_eta) + n * sigma_eta  # K x K
 
@@ -416,11 +492,10 @@ vb_ard <- function(Y, X, K = 1L,
 
     for (j in seq_len(p)) {
         # Sigma_lambda_j = (psi_j^{-1} E[h'h] + diag(tau_j))^{-1}
-        if (use_ard) {
-            prec <- E_psi_inv[j] * E_HtH + diag(E_tau[j, ], nrow = K)
-        } else {
-            prec <- E_psi_inv[j] * E_HtH + diag(E_tau[j, ], nrow = K)
-        }
+        # use_ard enters through E_tau: it is re-estimated each sweep when ARD
+        # is on and held at its fixed initial value when it is off, so the
+        # update itself is the same expression either way.
+        prec <- E_psi_inv[j] * E_HtH + diag(E_tau[j, ], nrow = K)
         sigma_lambda[[j]] <- solve(prec)
 
         # mu_lambda_j = psi_j^{-1} Sigma_lambda_j E[h]' y_adj_j
@@ -433,7 +508,7 @@ vb_ard <- function(Y, X, K = 1L,
 
 #' @noRd
 .cavi_update_gamma <- function(Y, X, mu_eta, mu_lambda, E_psi_inv,
-                               E_xi, n, p, q, XtX) {
+                               E_xi, n, p, q, XtX, anchor_idx = integer(0)) {
     # Residual: Y - H Lambda'
     Y_adj <- Y - mu_eta %*% t(mu_lambda)  # n x p
 
@@ -443,7 +518,17 @@ vb_ard <- function(Y, X, K = 1L,
     mu_gamma <- matrix(0, p, q)
     sigma_gamma <- vector("list", p)
 
+    zero_q <- matrix(0, q, q)
+    is_anchor <- logical(p)
+    is_anchor[anchor_idx] <- TRUE
+
     for (j in seq_len(p)) {
+        if (is_anchor[j]) {
+            # Anchored indicator: gamma_j is fixed at exactly zero, so q(gamma_j)
+            # is a point mass at 0 (no update, no posterior spread).
+            sigma_gamma[[j]] <- zero_q
+            next
+        }
         # Sigma_gamma_j = (psi_j^{-1} X'X + diag(xi_j))^{-1}
         prec <- E_psi_inv[j] * XtX + diag(E_xi[j, ], nrow = q)
         sigma_gamma[[j]] <- solve(prec)
@@ -486,10 +571,20 @@ vb_ard <- function(Y, X, K = 1L,
 
 
 #' @noRd
-.cavi_update_xi <- function(mu_gamma, sigma_gamma, a_xi, b_xi, p, q) {
+.cavi_update_xi <- function(mu_gamma, sigma_gamma, a_xi, b_xi, p, q,
+                            anchor_idx = integer(0)) {
     a_hat <- a_xi + 0.5
     E_xi <- matrix(0, p, q)
+    is_anchor <- logical(p)
+    is_anchor[anchor_idx] <- TRUE
     for (j in seq_len(p)) {
+        if (is_anchor[j]) {
+            # gamma_j is fixed at zero, so its ARD precision carries no
+            # information; hold it at the prior mean rather than letting
+            # E[gamma^2] = 0 drive b_hat to b_xi and the precision to a/b_xi.
+            E_xi[j, ] <- a_xi / b_xi
+            next
+        }
         for (l in seq_len(q)) {
             b_hat <- b_xi + 0.5 * (mu_gamma[j, l]^2 +
                                    sigma_gamma[[j]][l, l])
@@ -563,7 +658,8 @@ vb_ard <- function(Y, X, K = 1L,
                           mu_gamma, sigma_gamma, mu_B, sigma_B, E_psi_inv,
                           E_tau, E_xi,
                           a_tau, b_tau, a_psi, b_psi, a_xi, b_xi, sigma_B_sq,
-                          n, p, q, K, use_ard, use_gamma) {
+                          n, p, q, K, use_ard, use_gamma,
+                          anchor_idx = integer(0)) {
 
     a_hat_psi <- a_psi + n / 2.0
     a_hat_tau <- a_tau + 0.5
@@ -613,7 +709,12 @@ vb_ard <- function(Y, X, K = 1L,
 
     # --- Gamma direct-effect block (q(Gamma) entropy + Gamma/xi prior+KL) ---
     if (use_gamma && !is.null(mu_gamma)) {
+        is_anchor <- logical(p)
+        is_anchor[anchor_idx] <- TRUE
         for (j in seq_len(p)) {
+            # Anchored rows are fixed at zero, not estimated: they contribute
+            # no q(gamma_j) entropy and no gamma/xi prior or KL term.
+            if (is_anchor[j]) next
             L <- L + 0.5 * (q * (1 + log2pi) +
                             log(det(sigma_gamma[[j]]) + 1e-300))
             for (l in seq_len(q)) {
@@ -675,4 +776,118 @@ vb_ard <- function(Y, X, K = 1L,
         sd_mat[j, ] <- sqrt(pmax(diag(sigma_list[[j]]), 0))
     }
     sd_mat
+}
+
+
+# ===========================================================================
+# Anchor selection
+# ===========================================================================
+
+#' Choose Identification Anchors for the Direct-Effect Model
+#'
+#' Picks the indicators whose direct effects should be held at zero so that the
+#' structural coefficients \code{B} and the direct effects \code{Gamma} are
+#' identified. See the Details section of \code{\link{vb_ard}} for why the
+#' unanchored model is not identified by the likelihood.
+#'
+#' Anchors are the top indicators by loading signal-to-noise ratio. That
+#' ranking is legitimate for this purpose: \code{Lambda} is identified from the
+#' conditional covariance \eqn{\Lambda\Lambda' + \Psi}, which does not involve
+#' the confounded \code{B}/\code{Gamma} split, so the choice does not use the
+#' quantity it is meant to identify.
+#'
+#' @param fit A \code{vb_ard} object from a first-pass fit.
+#' @param n_anchor Integer, how many anchors to return. Defaults to \code{K},
+#'   the minimum that identifies \code{B}.
+#' @param pool Integer, how many top-SNR indicators form the candidate pool
+#'   from which anchors are drawn. Defaults to \code{max(3 * n_anchor, 10)},
+#'   capped at the number of indicators.
+#' @param tol Numeric, condition-number tolerance for the linear-independence
+#'   check on the selected loading rows (default 1e-8).
+#'
+#' @return Character vector of variable names, suitable for the
+#'   \code{gamma_anchor} argument of \code{\link{vb_ard}}.
+#'
+#' @details
+#' For \code{K >= 2} the anchors' loading vectors must be linearly independent,
+#' otherwise \eqn{\Lambda_A} is rank deficient and \code{B} stays unidentified.
+#' The function walks the candidate pool greedily, keeping an indicator only
+#' if it raises the rank of the anchor block, and errors if it cannot assemble
+#' \code{n_anchor} independent rows.
+#'
+#' Within the pool, candidates are ordered by \emph{ascending} direct-effect
+#' SNR, so anchors are the strong-loading indicators with the least evidence of
+#' a direct effect. This matters: anchoring an indicator that truly has a
+#' direct effect forces \eqn{\gamma_j = 0} where it should not be, biasing
+#' \code{B}. Ranking by loading SNR alone can and does pick such an indicator,
+#' because a strong loading and a direct effect are not mutually exclusive.
+#'
+#' The tie-break uses the unidentified \code{Gamma} posterior, which is
+#' admittedly circular in principle. It is used only to order candidates that
+#' already qualify on loading strength, never to estimate anything, and the
+#' alternative -- ignoring the available evidence about which indicators look
+#' impure -- is worse. Residual risk remains: refit with the next-best anchors
+#' and compare \code{B} if the choice is consequential.
+#'
+#' @examples
+#' set.seed(1)
+#' d <- simulate_mimic(n = 150, p_total = 40, p_signal = 15, K = 1,
+#'                     has_direct = TRUE)
+#' pass1 <- vb_ard(d$Y, d$X, K = 1)
+#' anchors <- select_gamma_anchor(pass1)
+#' fit <- vb_ard(d$Y, d$X, K = 1, gamma_anchor = anchors)
+#' fit$gamma_anchor
+#'
+#' @seealso \code{\link{vb_ard}}, \code{\link{biomimic}}
+#' @export
+select_gamma_anchor <- function(fit, n_anchor = NULL, pool = NULL,
+                                tol = 1e-8) {
+    stopifnot(inherits(fit, "vb_ard"))
+    K <- fit$K
+    if (is.null(n_anchor)) n_anchor <- K
+    n_anchor <- as.integer(n_anchor)
+    if (n_anchor < K) {
+        warning(sprintf(
+            "n_anchor = %d is below K = %d; B will remain unidentified.",
+            n_anchor, K), call. = FALSE)
+    }
+    if (is.null(pool)) pool <- max(3L * n_anchor, 10L)
+    pool <- min(as.integer(pool), length(fit$var_names))
+
+    ranking <- rank_variables(fit, type = "lambda")
+    ord     <- match(ranking$variable[seq_len(pool)], fit$var_names)
+    Lam     <- fit$mu_lambda
+
+    # Prefer, among these strong-loading candidates, the ones with the weakest
+    # direct-effect evidence: anchoring a genuinely impure indicator biases B.
+    if (!is.null(fit$snr_gamma)) {
+        cov_cols <- setdiff(colnames(fit$snr_gamma),
+                            c("intercept", "(Intercept)"))
+        if (length(cov_cols)) {
+            g <- apply(fit$snr_gamma[ord, cov_cols, drop = FALSE], 1,
+                       function(r) max(r, na.rm = TRUE))
+            ord <- ord[order(g)]
+        }
+    }
+
+    keep <- integer(0)
+    for (i in ord) {
+        cand <- c(keep, i)
+        block <- Lam[cand, , drop = FALSE]
+        # rank via SVD: a new row must add a non-negligible singular value
+        sv <- svd(block, nu = 0, nv = 0)$d
+        if (min(sv) > tol * max(sv, 1)) keep <- cand
+        if (length(keep) == n_anchor) break
+    }
+
+    if (length(keep) < n_anchor) {
+        stop(sprintf(
+            paste0("Could not find %d indicators with linearly independent ",
+                   "loadings (found %d). Reduce K or n_anchor."),
+            n_anchor, length(keep)), call. = FALSE)
+    }
+
+    .log_info("select_gamma_anchor: %s", paste(fit$var_names[keep],
+                                               collapse = ", "))
+    fit$var_names[keep]
 }

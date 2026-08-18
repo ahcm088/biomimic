@@ -18,6 +18,7 @@ vb_ard(
   b_psi = 0.001,
   a_xi = 0.001,
   b_xi = 0.001,
+  gamma_anchor = NULL,
   verbose = FALSE
 )
 }
@@ -28,8 +29,12 @@ vb_ard(
 
 \item{K}{Integer, number of latent factors (default 1).}
 
-\item{use_ard}{Logical, whether to use ARD priors on loadings (default TRUE).
-Recommended FALSE for K > 1.}
+\item{use_ard}{Logical, whether to use ARD priors on loadings
+(default TRUE). Recommended TRUE for every K: with ARD off, the
+loading precisions stay fixed at a vague constant and the
+direct-effect screening statistic degrades sharply for K >= 2
+(in simulation, its null false-positive rate at the default
+threshold rises several-fold).}
 
 \item{use_gamma}{Logical, whether to estimate direct effects Gamma
 (default TRUE).}
@@ -46,6 +51,16 @@ Recommended FALSE for K > 1.}
 
 \item{a_xi, b_xi}{Shape and rate hyperparameters for ARD prior on Gamma
 (default 1e-3 each).}
+
+\item{gamma_anchor}{Optional character vector of variable names (or integer
+column indices of \code{Y}) whose direct effects are held at exactly zero.
+These \emph{anchor} indicators identify the split between the structural
+coefficients \code{B} and the direct effects \code{Gamma}. Without them
+the split is not identified by the likelihood (see Details), and the
+separation rests on the ARD prior alone. Supply at least \code{K} anchors
+with linearly independent loading vectors; \code{\link{select_gamma_anchor}}
+picks them from a first-pass fit. Default \code{NULL} reproduces the
+unanchored (prior-regularised) behaviour.}
 
 \item{verbose}{Logical, print progress (default FALSE).}
 }
@@ -78,6 +93,20 @@ Fits a Bayesian factor model with Automatic Relevance Determination (ARD)
 priors using Coordinate Ascent Variational Inference (CAVI). The model
 includes optional direct-effect paths (Gamma) from covariates to observed
 variables.
+}
+\details{
+\strong{Identification of B versus Gamma.} Marginalising the latent scores
+gives \eqn{y_i \mid x_i \sim N((\Lambda B' + \Gamma) x_i,\ \Lambda\Lambda' +
+\Psi)}, so the likelihood depends on \code{B} and \code{Gamma} only through
+the sum \eqn{\Lambda B' + \Gamma}. For any \eqn{\Delta} (q x K) the pair
+\eqn{(B + \Delta,\ \Gamma - \Lambda\Delta')} has an identical likelihood:
+a flat direction of dimension \eqn{qK}. \code{Lambda} itself is identified
+(up to rotation) from the conditional covariance and is unaffected.
+
+Fixing \eqn{\gamma_j = 0} for a set \eqn{A} of anchors makes
+\eqn{\Pi_A = \Lambda_A B'} and pins \code{B} uniquely whenever
+\eqn{\Lambda_A} has rank \code{K} -- hence the requirement of at least
+\code{K} anchors with linearly independent loadings.
 }
 \section{Model}{
 

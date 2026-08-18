@@ -94,8 +94,8 @@ available via `fit$lavaan_fit` for anything the wrapper does not cover.
 
 | Stage | Function | Purpose |
 |---|---|---|
-| 1. Screening | `vb_ard()` | Ranks all *p* variables by posterior signal-to-noise ratio using a variational Bayes factor model with ARD priors. The Gamma extension simultaneously flags variables whose covariate association bypasses the latent factor. |
-| 2. Selection | `top_k()`, `rank_variables()`, `discover_factors()` | Retains the top *k* variables and, for multi-factor models, discovers block structure via SVD with varimax rotation. |
+| 1. Screening | `vb_ard()`, `select_gamma_anchor()` | Ranks all *p* variables by posterior signal-to-noise ratio using a variational Bayes factor model with ARD priors. The Gamma extension simultaneously flags variables whose covariate association bypasses the latent factor; *anchor* indicators (chosen automatically) hold their direct effects at zero so that the structural/direct split is identified. |
+| 2. Selection | `top_k()`, `rank_variables()`, `discover_factors()`, `calibrate_gamma_threshold()` | Retains the top *k* variables and, for multi-factor models, discovers block structure via SVD with varimax rotation. Direct-effect flags can use a parametric-bootstrap threshold that controls the family-wise error rate at 5% (`gamma_threshold = "bootstrap"`). |
 | 3. Estimation | `fit_sem()`, `build_lavaan_model()` | Generates and fits the `lavaan` model: MIMIC, multi-group CFA, MIMIC with direct effects, or multi-factor. |
 
 `biomimic()` chains all three stages in one call. The result is a
