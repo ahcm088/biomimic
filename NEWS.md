@@ -1,3 +1,19 @@
+# biomimic 0.3.1
+
+* `run_simulation()` now fits every replicate with `use_ard = TRUE`,
+  matching the protocol of the reported simulation study; it previously
+  disabled ARD for `K > 1`, the configuration this same study showed to
+  be harmful.
+* NEWS correction: the 0.3.0 rank-condition check runs in the pre-fit
+  identification screen used by `build_lavaan_model()`/`fit_sem()`, not
+  in the exported `check_identification()` as previously stated.
+* README: the quick-start loadings excerpt now shows consecutive output
+  lines (the MGC18216 row was silently skipped).
+* Vignette and NEWS wording: `test_invariance()` fits configural, metric,
+  scalar and strict models (strict was previously omitted from the
+  descriptions), and the direct-effect extension is documented as on by
+  default rather than opt-in.
+
 # biomimic 0.3.0
 
 Identification release. The simulation study and all five applications have
@@ -23,8 +39,9 @@ the split rested entirely on the ARD prior.
   anchoring). Pass `NULL` for the previous unanchored behaviour.
 * `top_k()` forces anchors into the panel and puts them first, so Stage 3 fixes
   its marker loading on an indicator already constrained to be pure.
-* `check_identification()` now tests the rank condition (at least `K` pure
-  indicators) rather than a fixed `|S| <= p - 2`.
+* The pre-fit identification screen run by
+  `build_lavaan_model()`/`fit_sem()` now tests the rank condition (at
+  least `K` pure indicators) rather than a fixed `|S| <= p - 2`.
 
 Anchoring fixes identification. It does **not** make the direct-effect SNR
 pivotal: under a null with an active latent covariate effect the statistic
@@ -109,7 +126,7 @@ First public release.
 
 * `goodness_of_fit()`, `test_hypotheses()` and `lr_test()` for model assessment
   and nested comparisons.
-* `test_invariance()` for configural, metric and scalar measurement invariance.
+* `test_invariance()` for configural, metric, scalar and strict measurement invariance.
 * `diagnose()`, `residual_analysis()`, `mahalanobis_distance()` for diagnostics.
 * `predict_scores()`, `predict_observed()` and `network_analysis()` for
   downstream use.

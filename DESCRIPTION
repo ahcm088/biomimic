@@ -1,6 +1,6 @@
 Package: biomimic
 Title: VB-ARD Screening Pipeline for High-Dimensional Latent Variable Models
-Version: 0.3.0
+Version: 0.3.1
 Authors@R: c(
     person("Alexandre Henrique Carvalho", "Marques", email = "alexandre.marques.088@ufrn.edu.br",
            role = c("aut", "cre")),

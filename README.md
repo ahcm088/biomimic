@@ -81,6 +81,7 @@ Model: MIMIC | Estimator: ML | n = 137
 --- Protein-Pathway Associations (Factor Loadings) ---
   SSR4 <- Latent pathway: 1.000 (std = 0.960)
   ZDHHC7 <- Latent pathway: 1.038 (std = 0.939) ***
+  MGC18216 <- Latent pathway: 0.967 (std = 0.938) ***
   RAMP1 <- Latent pathway: 0.923 (std = 0.952) ***
   ...
 ```

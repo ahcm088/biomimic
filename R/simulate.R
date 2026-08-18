@@ -377,7 +377,7 @@ run_simulation <- function(design, n_reps = 100L, B_true = 1.0, k = 15L,
         base <- data.frame(scenario = s, d, rep = r, model_type = mt,
                            row.names = NULL, stringsAsFactors = FALSE)
         res <- tryCatch(biomimic(sim$Y, sim$X, K = d$K, k = k, model_type = mt,
-                                 max_iter = max_iter, use_ard = (d$K == 1L)),
+                                 max_iter = max_iter, use_ard = TRUE),
                         error = function(e) NULL)
         if (is.null(res))
             return(cbind(base, converged = FALSE, screening_f1 = NA_real_,

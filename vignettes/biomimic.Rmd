@@ -121,7 +121,8 @@ vb <- vb_ard(neuro_antibodyome$proteins, neuro_antibodyome$X, K = 1)
 head(rank_variables(vb), 10)
 ```
 
-The `use_gamma` argument turns on the direct-effect extension, which places ARD
+The direct-effect extension (on by default; disable with
+`use_gamma = FALSE`) places ARD
 priors on covariate-to-indicator paths as well. It flags proteins whose
 association with the covariate bypasses the latent factor — a step normally
 done by hand from modification indices.
@@ -130,7 +131,7 @@ done by hand from modification indices.
 
 If a latent difference between groups is to mean anything, the measurement
 model has to behave the same way in both. `test_invariance()` fits the
-configural, metric and scalar models and compares them.
+configural, metric, scalar and strict models and compares them.
 
 ```{r invariance, eval = FALSE}
 test_invariance(fit$selection, group_var = "group")
