@@ -1,3 +1,15 @@
+# biomimic 0.3.3
+
+* PSOCK workers start with their own default `.libPaths()` and do not inherit
+  the master's, so they could not see the temporary library that
+  `R CMD build`/`check` installs into and would fail to find biomimic on a
+  machine where it is not already installed. The workers are now pointed at
+  the master's libraries, so they load the very copy the calling session is
+  running. Applies to both `.biomimic_parallel()` and the cluster in
+  `run_simulation()`. biomimic's own vignette does not exercise a parallel
+  path, so this never broke its build --- unlike the companion package, where
+  it did --- but the same latent fault was present.
+
 # biomimic 0.3.2
 
 Parallel-execution robustness; no change to any statistical result.

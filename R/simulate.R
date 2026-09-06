@@ -406,6 +406,11 @@ run_simulation <- function(design, n_reps = 100L, B_true = 1.0, k = 15L,
     if (use_par) {
         cl <- parallel::makeCluster(n_cores)
         on.exit(parallel::stopCluster(cl), add = TRUE)
+        # Workers do not inherit the master's .libPaths(); see the note in
+        # .biomimic_parallel().
+        lib_paths <- .libPaths()
+        parallel::clusterExport(cl, "lib_paths", envir = environment())
+        parallel::clusterEvalQ(cl, .libPaths(lib_paths))
         parallel::clusterExport(cl,
             c("jobs", "design", "B_true", "k", "max_iter", "seed_base"),
             envir = environment())

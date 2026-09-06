@@ -150,6 +150,15 @@
 
     cl <- parallel::makeCluster(n_cores)
     on.exit(parallel::stopCluster(cl), add = TRUE)
+    # A PSOCK worker starts with its own default .libPaths() and does not
+    # inherit the master's. That matters whenever biomimic lives somewhere the
+    # default paths do not cover -- above all the temporary library that
+    # R CMD build/check installs into, where the workers would otherwise fail
+    # to find biomimic at all. Point them at the master's libraries so they
+    # load the very copy this session is running.
+    lib_paths <- .libPaths()
+    parallel::clusterExport(cl, "lib_paths", envir = environment())
+    parallel::clusterEvalQ(cl, .libPaths(lib_paths))
     have_pkg <- all(unlist(parallel::clusterEvalQ(cl,
         requireNamespace("biomimic", quietly = TRUE))))
     if (have_pkg) {
