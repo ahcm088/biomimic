@@ -395,11 +395,11 @@ run_simulation <- function(design, n_reps = 100L, B_true = 1.0, k = 15L,
     }
 
     idx <- seq_len(nrow(jobs))
-    if (is.null(n_cores)) {
-        env <- suppressWarnings(as.integer(Sys.getenv("BIOMIMIC_NCORES", "")))
-        n_cores <- if (!is.na(env) && env >= 1L) env
-                   else max(1L, tryCatch(parallel::detectCores() - 1L,
-                                         error = function(e) 1L))
+    # Same core policy as .biomimic_parallel(), including the --as-cran cap.
+    n_cores <- if (is.null(n_cores)) .biomimic_n_cores() else {
+        chk <- Sys.getenv("_R_CHECK_LIMIT_CORES_", "")
+        if (nzchar(chk) && !identical(tolower(chk), "false"))
+            min(n_cores, 2L) else n_cores
     }
     use_par <- isTRUE(parallel) && n_cores > 1L &&
         requireNamespace("parallel", quietly = TRUE)
@@ -410,6 +410,7 @@ run_simulation <- function(design, n_reps = 100L, B_true = 1.0, k = 15L,
             c("jobs", "design", "B_true", "k", "max_iter", "seed_base"),
             envir = environment())
         parallel::clusterEvalQ(cl, suppressMessages(library(biomimic)))
+        .biomimic_check_worker_version(cl)
         res <- parallel::parLapply(cl, idx, run_one)
     } else {
         res <- lapply(idx, run_one)

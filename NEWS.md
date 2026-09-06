@@ -1,3 +1,21 @@
+# biomimic 0.3.2
+
+Parallel-execution robustness; no change to any statistical result.
+
+* Parallel runs now verify that the workers load the same biomimic as the
+  calling session, and abort on a version mismatch. PSOCK workers resolve
+  the package's internal functions through their own installed copy, so a
+  stale install silently ran old code for every replicate; only a missing
+  object failed loudly, while a numerical difference would have quietly
+  contaminated bootstrap calibration and simulation output. Same-version/
+  different-build cases warn once per session, including
+  `devtools::load_all()` sessions, whose edits never reach the workers. Set
+  `BIOMIMIC_SKIP_VERSION_CHECK` to bypass.
+* The worker count is capped at 2 under `R CMD check --as-cran`, which sets
+  `_R_CHECK_LIMIT_CORES_` and makes `makeCluster()` error above that.
+* `run_simulation()` now reuses `.biomimic_n_cores()` rather than
+  duplicating the core-count logic, so both paths follow one policy.
+
 # biomimic 0.3.1
 
 * `run_simulation()` now fits every replicate with `use_ard = TRUE`,

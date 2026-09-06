@@ -5,7 +5,7 @@ high-dimensional latent-variable modelling: variational Bayes with automatic
 relevance determination screens thousands of candidate variables, a top-k
 panel is selected, and structural equation models (MIMIC, multi-group CFA,
 and MIMIC with direct effects) are fitted with 'lavaan'. The version number
-(0.2.0) reflects pre-CRAN development; this is the first CRAN submission.
+(0.3.2) reflects pre-CRAN development; this is the first CRAN submission.
 
 ## Test environments
 
