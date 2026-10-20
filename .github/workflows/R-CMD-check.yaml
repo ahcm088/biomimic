@@ -61,3 +61,14 @@ jobs:
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+
+      # job logs need admin rights to read; annotations are public, so the
+      # end of each failing log is repeated there
+      - name: Show check failures as annotations
+        if: failure()
+        shell: bash
+        run: |
+          find check -name '00check.log' -o -name '*.Rout.fail' -o -name '00install.out' | while read -r f; do
+            msg=$(tail -c 3000 "$f" | tr -d '\r' | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=${f}::${msg}"
+          done
