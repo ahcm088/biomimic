@@ -26,6 +26,9 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      # 'cate' (Suggests) is archived on CRAN and is not installed here;
+      # rank_cate() and its tests are skipped without it
+      _R_CHECK_FORCE_SUGGESTS_: false
 
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +42,19 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rcmdcheck
+          dependencies: '"hard"'
+          extra-packages: |
+            any::rcmdcheck
+            any::testthat
+            any::knitr
+            any::rmarkdown
+            any::logger
+            any::scales
+            any::igraph
+            any::ggraph
+            any::corpcor
+            any::WGCNA
+            bioc::limma
           needs: check
 
       - uses: r-lib/actions/check-r-package@v2
