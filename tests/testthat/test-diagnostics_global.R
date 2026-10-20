@@ -40,7 +40,11 @@ test_that("panel_scores and external_check recover an external measure", {
 test_that("normalise_arrays removes the per-array level", {
     d <- make_global()
     Ym <- normalise_arrays(d$Y, "median")
-    expect_lt(abs(stats::cor(apply(Ym, 1, median), d$level)), 0.05)
+    # every array's median is zero (up to rounding), and the array means,
+    # which followed the level, no longer do
+    expect_lt(max(abs(apply(Ym, 1, median))), 1e-12)
+    expect_gt(stats::cor(rowMeans(d$Y), d$level), 0.9)
+    expect_lt(abs(stats::cor(rowMeans(Ym), d$level)), 0.2)
     Yq <- normalise_arrays(d$Y, "quantile")
     expect_equal(dim(Yq), dim(d$Y))
     expect_lt(stats::sd(apply(Yq, 1, mean)), 1e-8)

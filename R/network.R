@@ -124,6 +124,9 @@ network_analysis <- function(fit,
     full_cor <- cor_mat
 
     # --- Threshold and build adjacency ---
+    # cor2pcor() can leave the matrix asymmetric in the last digits, which
+    # igraph (>= 1.6) rejects for an undirected graph
+    cor_mat <- (cor_mat + t(cor_mat)) / 2
     adj <- cor_mat
     adj[abs(adj) < threshold] <- 0
     diag(adj) <- 0
@@ -161,11 +164,11 @@ network_analysis <- function(fit,
 
     # --- Hub density ---
     hub_density <- NA_real_
-    overall_density <- igraph::graph.density(g)
+    overall_density <- igraph::edge_density(g)
     hub_vertices <- which(igraph::V(g)$name %in% hub_names)
     if (length(hub_vertices) >= 2) {
         hub_subgraph <- igraph::induced_subgraph(g, hub_vertices)
-        hub_density <- igraph::graph.density(hub_subgraph)
+        hub_density <- igraph::edge_density(hub_subgraph)
     }
 
     # --- Marginal neighbours ---

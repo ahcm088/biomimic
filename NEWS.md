@@ -53,6 +53,9 @@ supplied the panels.
   every comparison keeps its row, so verdicts can no longer shift against
   the levels when one likelihood-ratio test fails.
 * `lrt_structural()` adds a `label` column with the factor names of the fit.
+* `network_analysis()` works with igraph 2.0 (`edge_density()` in place of
+  the deprecated `graph.density()`; the partial-correlation matrix is made
+  exactly symmetric, as igraph 1.6 and later require).
 
 ## Documentation
 
