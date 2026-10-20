@@ -49,6 +49,11 @@ direct effect forces \eqn{\gamma_j = 0} where it should not be, biasing
 \code{B}. Ranking by loading SNR alone can and does pick such an indicator,
 because a strong loading and a direct effect are not mutually exclusive.
 
+For \code{K = 1} the pool is first restricted to indicators whose loading
+has the majority sign. The anchor becomes the Stage-3 marker, and a marker
+that loads against the rest of the panel reverses the sign of \code{B}
+without changing anything substantive.
+
 The tie-break uses the unidentified \code{Gamma} posterior, which is
 admittedly circular in principle. It is used only to order candidates that
 already qualify on loading strength, never to estimate anything, and the

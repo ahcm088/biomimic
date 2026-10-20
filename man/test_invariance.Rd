@@ -23,8 +23,13 @@ A list of class \code{biomimic_invariance} with components:
 \describe{
 \item{fits}{Named list of lavaan fit objects (configural, metric, scalar, strict)}
 \item{comparisons}{Data frame with LRT comparisons between successive models}
-\item{fit_indices}{Data frame with GOF indices for each level}
+\item{fit_indices}{Data frame with GOF indices for each level (NA, with
+\code{converged = FALSE}, for a level that did not converge)}
 \item{verdict}{Character vector with plain-language assessment per level}
+\item{worst}{List with \code{loadings} and \code{intercepts}: the
+features whose equality constraints are least compatible with the
+data (univariate score tests in the metric and scalar models, largest
+first; with robust estimators the ordinary, non-robust statistic)}
 }
 }
 \description{

@@ -32,8 +32,13 @@
 #' \describe{
 #'   \item{fits}{Named list of lavaan fit objects (configural, metric, scalar, strict)}
 #'   \item{comparisons}{Data frame with LRT comparisons between successive models}
-#'   \item{fit_indices}{Data frame with GOF indices for each level}
+#'   \item{fit_indices}{Data frame with GOF indices for each level (NA, with
+#'     \code{converged = FALSE}, for a level that did not converge)}
 #'   \item{verdict}{Character vector with plain-language assessment per level}
+#'   \item{worst}{List with \code{loadings} and \code{intercepts}: the
+#'     features whose equality constraints are least compatible with the
+#'     data (univariate score tests in the metric and scalar models, largest
+#'     first; with robust estimators the ordinary, non-robust statistic)}
 #' }
 #'
 #' @examples
@@ -137,40 +142,48 @@ test_invariance <- function(fit, group_var = NULL,
         c("scalar", "strict")
     )
 
+    # A level that does not converge gives NA rows rather than an error, and
+    # every comparison keeps its row so that the verdicts stay aligned
+    converged <- vapply(fits, function(f) isTRUE(lavaan::lavInspect(f, "converged")),
+                        logical(1))
+    if (!all(converged)) {
+        .log_warn("test_invariance: %s did not converge",
+                  paste(names(fits)[!converged], collapse = ", "))
+    }
     for (pair in pairs) {
-        lrt <- tryCatch(
+        lrt <- if (all(converged[pair])) tryCatch(
             lavaan::lavTestLRT(fits[[pair[1]]], fits[[pair[2]]]),
             error = function(e) NULL
-        )
-        if (!is.null(lrt) && nrow(lrt) >= 2) {
-            comparisons <- rbind(comparisons, data.frame(
-                comparison = paste(pair[1], "->", pair[2]),
-                chisq_diff = lrt[["Chisq diff"]][2],
-                df_diff    = lrt[["Df diff"]][2],
-                pvalue     = lrt[["Pr(>Chisq)"]][2],
-                stringsAsFactors = FALSE
-            ))
-        }
+        ) else NULL
+        ok <- !is.null(lrt) && nrow(lrt) >= 2
+        comparisons <- rbind(comparisons, data.frame(
+            comparison = paste(pair[1], "->", pair[2]),
+            chisq_diff = if (ok) lrt[["Chisq diff"]][2] else NA_real_,
+            df_diff    = if (ok) lrt[["Df diff"]][2] else NA_real_,
+            pvalue     = if (ok) lrt[["Pr(>Chisq)"]][2] else NA_real_,
+            stringsAsFactors = FALSE
+        ))
     }
 
     # --- Fit indices table ---
     indices_names <- c("chisq", "df", "rmsea", "cfi", "tli", "srmr")
     fit_indices <- data.frame(level = names(fits), stringsAsFactors = FALSE)
     for (idx in indices_names) {
-        fit_indices[[idx]] <- vapply(fits, function(f) {
-            fm <- lavaan::fitMeasures(f, idx)
-            unname(fm)
+        fit_indices[[idx]] <- vapply(names(fits), function(l) {
+            if (!converged[[l]]) return(NA_real_)
+            unname(lavaan::fitMeasures(fits[[l]], idx))
         }, numeric(1))
     }
+    fit_indices$converged <- unname(converged)
 
     # --- Delta CFI criterion (Cheung & Rensvold, 2002) ---
     delta_cfi <- diff(fit_indices$cfi)
     verdicts <- character(3)
     comp_names <- c("Metric", "Scalar", "Strict")
     for (i in seq_len(3)) {
-        p_val <- if (i <= nrow(comparisons)) comparisons$pvalue[i] else NA
+        p_val <- comparisons$pvalue[i]
         d_cfi <- delta_cfi[i]
-        if (is.na(p_val)) {
+        if (is.na(p_val) || is.na(d_cfi)) {
             verdicts[i] <- "Could not compute"
         } else if (p_val > 0.05 || abs(d_cfi) < 0.01) {
             verdicts[i] <- "SUPPORTED"
@@ -184,15 +197,46 @@ test_invariance <- function(fit, group_var = NULL,
         .log_info("test_invariance: %s -> %s", nm, verdicts[nm])
     }
 
+    # Which constraints break invariance: univariate score tests of the
+    # equality constraints (loadings in the metric model, intercepts in the
+    # scalar model), largest first
+    worst <- list(
+        loadings = if (converged[["metric"]]) .worst_constraints(fit_metric, "=~"),
+        intercepts = if (converged[["scalar"]]) .worst_constraints(fit_scalar, "~1"))
+
     structure(
         list(
             fits         = fits,
             comparisons  = comparisons,
             fit_indices  = fit_indices,
-            verdict      = verdicts
+            verdict      = verdicts,
+            worst        = worst
         ),
         class = "biomimic_invariance"
     )
+}
+
+
+#' @noRd
+.worst_constraints <- function(fit, op, n = 5L) {
+    # With robust estimators lavaan falls back to the ordinary score test,
+    # which is enough to rank the constraints
+    st <- tryCatch(withCallingHandlers(lavaan::lavTestScore(fit)$uni,
+                                       warning = function(w) if (grepl("not implemented yet", conditionMessage(w)))
+                                           invokeRestart("muffleWarning")),
+                   error = function(e) NULL)
+    if (is.null(st) || !nrow(st)) return(NULL)
+    pt <- lavaan::parTable(fit)
+    lab <- sub("^\\s*(\\.p[0-9]+\\.).*$", "\\1", st$lhs)
+    row <- match(lab, pt$plabel)
+    keep <- !is.na(row) & pt$op[row] == op
+    if (!any(keep)) return(NULL)
+    v <- if (op == "=~") pt$rhs[row[keep]] else pt$lhs[row[keep]]
+    out <- data.frame(variable = v, X2 = st$X2[keep], p = st$p.value[keep],
+                      stringsAsFactors = FALSE)
+    out <- out[order(-out$X2), , drop = FALSE]
+    rownames(out) <- NULL
+    utils::head(out, n)
 }
 
 

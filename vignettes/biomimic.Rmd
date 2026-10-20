@@ -1,8 +1,8 @@
 ---
-title: "Getting started with biomimic"
+title: "From omics features to structural equation models"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Getting started with biomimic}
+  %\VignetteIndexEntry{From omics features to structural equation models}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -11,154 +11,271 @@ vignette: >
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
+  message = FALSE,
   fig.width = 7,
   fig.height = 4.5,
   dpi = 96
 )
+has_limma <- requireNamespace("limma", quietly = TRUE)
+has_wgcna <- requireNamespace("WGCNA", quietly = TRUE)
 ```
 
-## The problem
+Most omics analyses end with a list: genes ranked by a test, modules of
+co-expressed genes, enrichment of those modules. What they rarely give is a
+model that can be tested as a whole. Is the group difference carried by one
+programme or by two? Does a gene differ on its own, or only because the
+programme it belongs to does? Does a clinical score follow the programme,
+and through which path? Structural equation models answer such questions
+with standard errors, likelihood-ratio tests and measures of fit, but they
+need a short list of indicators and a hypothesis, and choosing 15 indicators
+out of 20,000 is not something SEM software does.
 
-The standard way to analyse an antibodyome experiment is borrowed from
-transcriptomics: test each protein separately for a difference between groups,
-then correct for testing thousands of hypotheses. It works when a few proteins
-have large individual effects. It struggles when the signal is spread across
-many proteins that move together, because the multiple-testing burden grows
-with every protein measured and marginal testing throws away the correlation
-structure that carries the biology.
+`biomimic` connects the two. It takes features through four steps:
 
-A MIMIC model asks a different question. Observed proteins are indicators of a
-latent factor — an unobserved immunological state — and the clinical group acts
-on that factor as a regressor. Instead of "which proteins differ?", the model
-answers "does the latent state differ between groups?". One coefficient, one
-test, no multiple-testing correction.
+1. **rank** them by group association (limma, CATE, or the package's own
+   VB-ARD screening);
+2. **group** them into modules (WGCNA, curated gene sets, or VB-ARD
+   factors);
+3. **check** that a module measures biology and not each sample's global
+   level;
+4. **model** the chosen panels in `lavaan`: multi-factor MIMIC, measurement
+   invariance, decomposition of a gene's effect, mediation, bifactor models
+   and repeated measures.
 
-The catch is that structural equation modelling software wants you to name the
-indicators. Choosing 15 out of 8,000 is not something it does, and specifying
-and diagnosing the model assumes SEM training. `biomimic` handles both.
+Each step has interchangeable front ends, and every model returns the
+underlying `lavaan` object.
 
 ```{r setup}
 library(biomimic)
 ```
 
-## The example data
+## Example data
 
-`neuro_antibodyome` is a subset of the ProtoArray data analysed in the paper,
-for the Alzheimer's disease versus control comparison: 137 samples (46 cases,
-91 controls) and 400 autoantibody features, centred and ready to use.
+The example is simulated, so that every result can be checked against the
+truth. Two hundred samples, half of them cases, carry two programmes: an
+interferon-like programme raised in cases (30 genes, `ISG1` to `ISG30`) and
+a lymphocyte-like programme lowered in cases (30 genes, `LYM1` to `LYM30`).
+Each sample also has a global level that shifts every feature, as array
+intensity or cell composition do in real data, and 440 background genes
+carry nothing else. Three genes are planted for the models: `GENE_A`
+follows the interferon programme and has no effect of its own, `GENE_B`
+differs between groups on its own, and `ISG3` belongs to the interferon
+programme but is shifted further in cases. A clinical activity score
+depends on the interferon programme only.
 
 ```{r data}
-data(neuro_antibodyome)
-str(neuro_antibodyome, max.level = 1)
+set.seed(2026)
+n <- 200
+group <- rep(0:1, each = n / 2)
+ifn <- 0.9 * group + rnorm(n)                    # interferon programme
+lym <- -0.6 * group + rnorm(n)                   # lymphocyte programme
+level <- rnorm(n, sd = 0.5)                      # each sample's global level
+programme <- function(f, m) sapply(seq_len(m), function(j) 0.8 * f + level + rnorm(n, sd = 0.6))
+Y <- cbind(programme(ifn, 30), programme(lym, 30),
+           sapply(1:440, function(j) level + rnorm(n)))
+colnames(Y) <- c(paste0("ISG", 1:30), paste0("LYM", 1:30), paste0("G", 1:440))
+Y[group == 1, "ISG3"] <- Y[group == 1, "ISG3"] + 0.8
+Y <- cbind(Y, GENE_A = 0.7 * ifn + rnorm(n, sd = 0.7),
+              GENE_B = 0.6 * group + rnorm(n))
+activity <- 0.5 * ifn + rnorm(n)
+covs <- data.frame(group = group)
+markers <- list(interferon = paste0("ISG", 1:30), lymphocyte = paste0("LYM", 1:30))
 ```
 
-The covariate matrix carries an intercept, the group indicator, and age and sex
-as adjustment covariates.
+## Step 1: ranking features
 
-```{r covariates}
-head(neuro_antibodyome$X, 3)
+`rank_limma()` and `rank_cate()` return the same columns, so either can feed
+the rest of the pipeline. CATE adjusts each feature's effect for hidden
+factors estimated from the data; the `cate` package is archived on CRAN and
+installed from the archive.
+
+```{r limma, eval = has_limma}
+rk <- rank_limma(Y, covs)
+head(rk, 6)
 ```
 
-## Running the pipeline
+`ISG3` comes first: its own shift adds to the programme's. A ranking says
+which features differ but not why, and the models in Step 4 separate the
+two.
 
-```{r fit}
-fit <- biomimic(neuro_antibodyome$proteins,
-                neuro_antibodyome$X,
-                K = 1,
-                k = 15)
-fit
+## Step 2: modules
+
+`modules_wgcna()` builds a signed WGCNA network and returns its modules,
+with genes ranked by module membership. `annotate_modules()` names them by
+counting known markers among each module's top genes.
+
+```{r wgcna, eval = has_wgcna}
+mods <- modules_wgcna(Y, n_genes = ncol(Y), min_size = 15)
+mods
+annotate_modules(mods, markers)
 ```
 
-That single call did three things.
+```{r sets-fallback, include = FALSE, eval = !has_wgcna}
+mods <- modules_from_sets(markers, Y)
+```
 
-**Stage 1** fitted a variational Bayes factor model with ARD priors to all 400
-features and ranked them by posterior signal-to-noise ratio. ARD shrinks
-irrelevant loadings toward zero, so the ranking reflects contribution to the
-shared latent factor rather than marginal effect size.
+When the modules are known in advance, `modules_from_sets()` takes curated
+gene sets instead and ranks genes within each set by their correlation with
+the set's first principal component.
 
-**Stage 2** kept the top 15.
+The third front end is the VB-ARD factor model that `biomimic` introduced,
+which estimates factors and each feature's own (direct) effect jointly.
+Here it recovers the lymphocyte programme fully but only part of the
+interferon programme, whose genes share the group effect and are partly
+absorbed into direct effects. This matches what we found in real blood
+data: WGCNA found the SLE interferon module in four of four cohorts and
+VB-ARD in two. VB-ARD is offered as one option, not as a better one.
 
-**Stage 3** generated `lavaan` syntax for a MIMIC model on those 15 indicators
-and fitted it. You never wrote a line of SEM syntax, but the model is a
-standard one and the full `lavaan` object is available via `fit$lavaan_fit`.
+```{r ard}
+vb <- vb_ard(Y, cbind(1, group), K = 2)
+annotate_modules(modules_ard(vb, n = 30), markers)
+```
 
-## Reading the results
+## Step 3: what does a module measure?
 
-```{r summary}
+A factor fitted to array data takes the largest axis of shared variation.
+In real data that axis was often each array's intensity, each serum's
+overall reactivity or the cell composition of blood, rather than a pathway.
+`global_level_check()` correlates the panel mean with each sample's
+whole-array mean and re-estimates the group effect with the latter as a
+covariate.
+
+```{r global}
+ann <- annotate_modules(mods, markers)
+ifn_panel <- head(mods$modules[[ann$module[1]]]$genes, 8)
+global_level_check(Y, ifn_panel, group, reference = group == 0)
+```
+
+The panel follows the global level (r about 0.6), as every gene here does,
+but the group effect survives the adjustment and the whole-array mean does
+not differ between groups. A strong correlation is a warning to look
+further, not a verdict; with external measurements (blood counts, clinical
+scores) `external_check()` makes the comparison directly.
+
+## Step 4: structural models
+
+### Two programmes, one model
+
+`select_panels()` takes the top genes of chosen modules and returns a
+selection that every model function accepts. `as_selection()` does the
+same for any named list of panels.
+
+```{r mimic}
+sel <- select_panels(mods, ann$module, k = 8, Y = Y, covariates = covs)
+fit <- fit_sem(sel, type = "multi_mimic",
+               factor_labels = c("Interferon", "Lymphocyte"))
 summary(fit)
 ```
 
-The line to read is the group effect on the latent pathway. It is negative and
-strongly significant: the latent immunological state is lower in AD than in
-controls, adjusted for age and sex. Age and sex have their own effects on the
-same factor, which is exactly why they belong in the model.
+Both group effects are estimated in one model, with their correlation and
+the fit of the measurement model. The Wald test of a marker-scaled
+coefficient depends on which indicator is the marker; `lrt_structural()`
+gives the likelihood-ratio test, which does not.
 
-Below that, the loadings show how each protein relates to the pathway. They are
-uniformly high, which is what selection by signal-to-noise ratio is supposed to
-produce — a coherent panel rather than a list of individually striking hits.
-
-## A note on fit indices
-
-The RMSEA above is flagged as poor. That deserves context rather than alarm.
-The conventional cutoffs come from simulations with small, theory-driven models
-and correctly specified indicators. They degrade as the number of indicators
-grows, and high unique variances — expected with heterogeneous proteomic
-indicators — inflate RMSEA and deflate CFI even for correctly specified models.
-With a data-driven indicator set and an exploratory latent factor, treat
-absolute cutoffs with caution and lean on SRMR and CFI alongside them.
-
-```{r gof}
-goodness_of_fit(fit)
+```{r lrt}
+lrt_structural(fit)[, c("label", "covariate", "estimate", "p_wald", "p_lrt")]
 ```
 
-## Screening on its own
+### Is the comparison fair? Measurement invariance
 
-You do not have to run the whole pipeline. Stage 1 is useful by itself as a
-screening tool:
+A latent difference between groups means something only if the indicators
+measure the factor the same way in both. `test_invariance()` fits the
+configural, metric, scalar and strict models and, when one fails, names the
+features whose constraints the data reject.
 
-```{r screening}
-vb <- vb_ard(neuro_antibodyome$proteins, neuro_antibodyome$X, K = 1)
-head(rank_variables(vb), 10)
+```{r invariance}
+inv <- test_invariance(as_selection(Y, paste0("ISG", 1:8), covs), group_var = "group")
+inv$verdict
+inv$worst$intercepts
 ```
 
-The direct-effect extension (on by default; disable with
-`use_gamma = FALSE`) places ARD
-priors on covariate-to-indicator paths as well. It flags proteins whose
-association with the covariate bypasses the latent factor — a step normally
-done by hand from modification indices.
+Scalar invariance fails, and the score tests point at `ISG3`, the gene that
+was shifted beyond its programme. In SLE blood the same test singled out
+`IRF7`, `BST2`, `ZBP1` and `JAK1` in the interferon module.
 
-## Measurement invariance
+### Through the programme or on its own?
 
-If a latent difference between groups is to mean anything, the measurement
-model has to behave the same way in both. `test_invariance()` fits the
-configural, metric, scalar and strict models and compares them.
+`decompose_effects()` splits each target's group effect into a part through
+each factor and the target's own part, with delta-method standard errors.
+Targets are fitted one at a time, in parallel when `n_cores` is above one.
 
-```{r invariance, eval = FALSE}
-test_invariance(fit$selection, group_var = "group")
+```{r decompose}
+Z <- scale(Y)
+panels <- list(Interferon = paste0("ISG", 4:11), Lymphocyte = paste0("LYM", 1:8))
+de <- decompose_effects(Z, panels, targets = c("GENE_A", "GENE_B", "ISG3"),
+                        group = group, n_cores = 1)
+de[, c("feature", "total", "via_Interferon", "via_Lymphocyte", "own", "own_se")]
 ```
 
-Metric invariance means the loadings are equal across groups; scalar invariance
-adds equal intercepts. Without them, a group difference on the factor could be
-an artefact of the indicators behaving differently in each group.
+`GENE_A` differs only through the interferon programme, `GENE_B` only on
+its own, and `ISG3` both ways, as simulated.
 
-## Plots
+### Mediation
 
-```{r plot-screening}
-plot_screening(fit)
+`fit_mediation()` takes mediators as panels (latent factors) or as single
+columns (observed) and tests each by likelihood ratio.
+
+```{r mediation}
+md <- fit_mediation(data.frame(Z, group = group, activity = activity),
+                    exposure = "group", mediators = panels, outcome = "activity")
+md
 ```
 
-```{r plot-loadings}
-plot_loadings(fit)
+The group effect on activity runs through the interferon factor; the
+lymphocyte path and the direct path are compatible with zero. Shares are
+fractions of the total effect, so they exceed 100% when the direct path
+points the other way, as it does here by chance.
+
+### A specific response beyond the global level
+
+In autoantibody arrays each serum's overall reactivity is a factor of its
+own, and a disease-specific response has to be shown beyond it.
+`fit_bifactor()` places a general factor on all indicators (the named
+panels plus features drawn at random from the rest) and orthogonal specific
+factors on the panels.
+
+```{r bifactor}
+fit_bifactor(Y, specific = list(Interferon = paste0("ISG", 4:9)), general = 40,
+             covariates = covs)
 ```
 
-```{r plot-effects}
-plot_structural_effects(fit)
+Here the general factor is the global level, which does not differ between
+groups, and the shift sits on the specific factor. In SLE sera, the same
+model showed that the Ro60--La response is raised beyond each patient's
+overall reactivity in two independent cohorts.
+
+## Repeated measures
+
+For visits nested in patients, `within_between()` splits a time-varying
+covariate into the patient's mean and the deviation from it, and
+`fit_sem(cluster = )` gives cluster-robust standard errors. The
+within-patient coefficient is the effect of a change in the same person,
+free of differences between people.
+
+```{r longitudinal, eval = FALSE}
+long <- within_between(visits, vars = "steroid_dose", id = "patient")
+sel <- as_selection(Y_visits, list(Lymphocyte = lym_panel),
+                    covariates = long[, c("steroid_dose_w", "steroid_dose_b")])
+fit_sem(sel, cluster = long$patient)
 ```
 
-## Where to go next
+`fit_riclpm()` fits a random-intercept cross-lagged panel model, which
+separates stable differences between patients from the dynamics within
+them and asks whether one construct at a visit predicts the other at the
+next.
 
-* `?vb_ard` — the screening model, its priors and the Gamma extension.
-* `?build_lavaan_model` — the four model types and the syntax each produces.
-* `?fit_sem` — estimator choice and Stage 3 options.
-* `?network_analysis` — treating the selected panel as a co-expression module.
-* `?simulate_mimic` — simulate data with known structure to evaluate the method.
+```{r riclpm, eval = FALSE}
+fit_riclpm(long, id = "patient", time = "visit",
+           constructs = c("interferon", "anti_dsDNA"), waves = 3)
+```
+
+## Further tools
+
+* `goodness_of_fit()`, `residual_analysis()`, `diagnose()` and
+  `mahalanobis_distance()` examine the fit and flag samples and indicators
+  that it does not explain.
+* `coordination_diagnostic()` compares a panel's coordination with random
+  sets of the same size and reports its correlation with the global level.
+* `normalise_arrays()` repeats an analysis after per-array normalisation.
+* `simulate_mimic()` and `run_simulation()` generate data with known
+  structure to evaluate a design before collecting it.

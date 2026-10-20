@@ -280,6 +280,99 @@ lr_test <- function(fit_full, fit_restricted) {
 }
 
 
+#' Likelihood Ratio Tests of the Structural Coefficients
+#'
+#' Tests each structural coefficient \code{B} (factor regressed on a
+#' covariate) by refitting the model with that coefficient fixed at zero and
+#' comparing the two fits, reporting the Wald test alongside.
+#'
+#' The Wald z of \code{B} depends on which indicator scales the factor
+#' (Gonzalez and Griffin, 2001): the model and its likelihood do not, but the
+#' standard error of a marker-scaled coefficient does. For a co-ordinated
+#' panel the dependence is small. For a weakly co-ordinated one -- a panel of
+#' indicators that move in both directions, typical of selection on direct
+#' effects -- it can decide significance on its own. The likelihood-ratio
+#' test compares the same two models whatever the marker and is the test to
+#' report there; if the two disagree, read that as a warning that a common
+#' factor may be the wrong summary of the panel (see
+#' \code{\link{coordination_diagnostic}}).
+#'
+#' @param fit A \code{biomimic_fit} object.
+#' @param covariates Optional character vector restricting the tests to these
+#'   covariates; by default every factor-on-covariate path is tested.
+#'
+#' @return A data frame, one row per structural path: \code{factor},
+#'   \code{label} (the factor's name in the fit), \code{covariate},
+#'   \code{estimate}, \code{std_estimate}, \code{z_wald},
+#'   \code{p_wald}, \code{chisq_diff}, \code{df_diff}, \code{p_lrt}. The
+#'   p-values are two-sided; for a pre-specified direction, halve
+#'   \code{p_lrt} when the estimate has the predicted sign.
+#'
+#' @references Gonzalez R, Griffin D (2001). Testing parameters in structural
+#'   equation modeling: every "one" matters. \emph{Psychological Methods},
+#'   6(3), 258--269.
+#'
+#' @seealso \code{\link{lr_test}}, \code{\link{fit_sem}}
+#' @export
+lrt_structural <- function(fit, covariates = NULL) {
+    stopifnot(inherits(fit, "biomimic_fit"))
+    lf <- fit$lavaan_fit
+    pe <- lavaan::parameterEstimates(lf)
+    st <- lavaan::standardizedSolution(lf)
+    paths <- pe[grepl("^F[0-9]+$", pe$lhs) & pe$op == "~", , drop = FALSE]
+    if ("group" %in% names(paths)) paths <- paths[paths$group == 1L, ,
+                                                  drop = FALSE]
+    if (!is.null(covariates)) paths <- paths[paths$rhs %in% covariates, ,
+                                             drop = FALSE]
+    if (!nrow(paths)) stop("no structural paths to test")
+
+    lines <- strsplit(fit$model_syntax, "\n", fixed = TRUE)[[1]]
+    opts <- lavaan::lavInspect(lf, "options")
+    grp <- lavaan::lavInspect(lf, "group")
+
+    rows <- lapply(seq_len(nrow(paths)), function(i) {
+        f <- paths$lhs[i]
+        v <- paths$rhs[i]
+        new <- lines
+        j <- grep(paste0("^", f, " ~ "), new)
+        rhs <- strsplit(sub(paste0("^", f, " ~ "), "", new[j]), " + ",
+                        fixed = TRUE)[[1]]
+        rhs[rhs == v] <- paste0("0*", v)
+        new[j] <- paste0(f, " ~ ", paste(rhs, collapse = " + "))
+        # A fitted MLR model reports estimator "ML" with robust se and a
+        # scaled test stored separately; all three must be carried over or
+        # lavTestLRT refuses to compare a scaled with an unscaled fit.
+        args <- list(model = paste(new, collapse = "\n"),
+                     data = fit$selection$data, estimator = opts$estimator,
+                     se = opts$se, test = opts$test)
+        if (length(grp)) args$group <- grp
+        if (!is.null(fit$selection$cluster)) args$cluster <- fit$selection$cluster
+        # Passing the clustered fit's test back to lavaan triggers a notice
+        # that it uses h1 information, as the original fit already did
+        f0 <- tryCatch(withCallingHandlers(do.call(lavaan::sem, args),
+            warning = function(w) if (grepl("observed.information for ALL",
+                                            conditionMessage(w)))
+                invokeRestart("muffleWarning")),
+            error = function(e) NULL)
+        lrt <- if (is.null(f0)) NULL else
+            tryCatch(lavaan::lavTestLRT(f0, lf), error = function(e) NULL)
+        s <- st[st$lhs == f & st$op == "~" & st$rhs == v, , drop = FALSE]
+        k <- as.integer(sub("^F", "", f))
+        data.frame(
+            factor = f,
+            label = if (k <= length(fit$factor_labels)) fit$factor_labels[k] else f,
+            covariate = v, estimate = paths$est[i],
+            std_estimate = if (nrow(s)) s$est.std[1] else NA_real_,
+            z_wald = paths$z[i], p_wald = paths$pvalue[i],
+            chisq_diff = if (is.null(lrt)) NA_real_ else lrt[["Chisq diff"]][2],
+            df_diff = if (is.null(lrt)) NA_real_ else lrt[["Df diff"]][2],
+            p_lrt = if (is.null(lrt)) NA_real_ else lrt[["Pr(>Chisq)"]][2],
+            stringsAsFactors = FALSE)
+    })
+    do.call(rbind, rows)
+}
+
+
 #' Print Method for biomimic_fit
 #'
 #' @param x A \code{biomimic_fit} object.

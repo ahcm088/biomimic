@@ -1,11 +1,13 @@
 ## Submission
 
-This is a new submission. 'biomimic' implements a three-stage pipeline for
-high-dimensional latent-variable modelling: variational Bayes with automatic
-relevance determination screens thousands of candidate variables, a top-k
-panel is selected, and structural equation models (MIMIC, multi-group CFA,
-and MIMIC with direct effects) are fitted with 'lavaan'. The version number
-(0.3.3) reflects pre-CRAN development; this is the first CRAN submission.
+This is a new submission. 'biomimic' takes high-dimensional omics data to
+structural equation models fitted with 'lavaan': features are ranked
+('limma', 'cate' or the package's own variational Bayes screening), grouped
+into modules ('WGCNA', curated sets or the screening's factors), checked
+against each sample's global level, and modelled (multi-factor MIMIC,
+measurement invariance, decomposition, mediation, bifactor and
+random-intercept cross-lagged panel models). The version number (0.4.0)
+reflects pre-CRAN development; this is the first CRAN submission.
 
 ## Test environments
 
@@ -36,7 +38,15 @@ BugReports fields point to the package's public GitHub repository
 * Examples that fit a model are wrapped in `\donttest{}` to keep per-example
   run time short; they are exercised by the package's `testthat` suite.
 * All packages listed under Suggests (logger, scales, igraph, ggraph,
-  corpcor) are used conditionally, guarded by `requireNamespace()`.
+  corpcor, WGCNA, limma, cate) are used conditionally, guarded by
+  `requireNamespace()`; the vignette chunks that use WGCNA and limma run
+  only when they are installed.
+
+<!-- Maintainer: 'cate' is archived on CRAN, so the incoming check will note
+     a Suggests package not in a mainstream repository. Decide before
+     submission: keep it and explain here, or reimplement the part of
+     cate::cate() that rank_cate() uses. The local devtools::check() skips
+     the incoming step; rerun with remote = TRUE, incoming = TRUE. -->
 
 ## Downstream dependencies
 

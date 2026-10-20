@@ -6,21 +6,21 @@
 [![R >= 4.1](https://img.shields.io/badge/R-%3E%3D%204.1-blue.svg)](https://cran.r-project.org/)
 <!-- badges: end -->
 
-Latent differential analysis for high-dimensional biological data: screen
-thousands of candidate variables, then fit a structural equation model to the
-ones that matter — without needing to write SEM syntax.
+Structural equation models for omics data. `biomimic` takes features through
+ranking, module detection and a check of what each module measures, and then
+fits the chosen panels as models in [`lavaan`](https://lavaan.ugent.be), with
+p-values for every path, likelihood-ratio tests, fit indices and residual
+diagnostics.
 
-The usual approach to antibodyome and proteomics data borrows from
-transcriptomics: test each protein independently, then correct for multiple
-testing. That works for large marginal effects but discards the correlation
-structure, which is often where the biology is. A MIMIC model asks a different
-question — *does the latent immunological state differ between groups?* —
-and answers it with a single structural coefficient, so no multiple-testing
-correction is needed.
-
-The obstacle is practical: general-purpose SEM software takes the indicator set
-as given, and choosing 15 indicators out of 8,000 is not something it does.
-`biomimic` closes that gap with a three-stage pipeline.
+Omics analyses usually stop at a list: genes ranked by a test, modules of
+co-expressed genes. Structural models ask questions that a list cannot
+answer. Is a group difference carried by one programme or by two? Does a gene
+differ on its own, or only because its programme does? Does a clinical score
+follow the programme, and through which path? Does the panel measure the
+programme the same way in patients and controls? The obstacle is practical:
+SEM software takes the indicators as given, and choosing 15 out of 20,000 is
+not something it does. `biomimic` handles that part and leaves the modelling
+to `lavaan`.
 
 ## Installation
 
@@ -28,112 +28,70 @@ as given, and choosing 15 indicators out of 8,000 is not something it does.
 
 ```r
 # install.packages("remotes")
-remotes::install_github("ahcm088/biomimic")
-```
-
-Or with `pak`:
-
-```r
-# install.packages("pak")
-pak::pak("ahcm088/biomimic")
-```
-
-To build the vignette locally, add `build_vignettes = TRUE`:
-
-```r
 remotes::install_github("ahcm088/biomimic", build_vignettes = TRUE)
 ```
 
-Requires R >= 4.1.0 and [`lavaan`](https://lavaan.ugent.be) (>= 0.6-17), which
-is installed automatically.
+It requires R >= 4.1.0 and `lavaan` (>= 0.6-17). The front ends use `limma`
+and `WGCNA` when installed; `rank_cate()` needs `cate`, which is archived on
+CRAN and installs from the
+[archive](https://cran.r-project.org/src/contrib/Archive/cate/).
 
-## Quick start
+## The pipeline
 
-The package ships a subset of the neurodegenerative antibodyome data used in
-the paper (Alzheimer's disease vs. control), already model-ready.
+| Step | Functions | Front ends |
+|---|---|---|
+| 1. Rank features | `rank_limma()`, `rank_cate()`, `vb_ard()` + `rank_variables()` | limma, CATE, VB-ARD |
+| 2. Find modules | `modules_wgcna()`, `modules_from_sets()`, `modules_ard()`, `annotate_modules()` | WGCNA, curated gene sets, VB-ARD factors |
+| 3. Check what a module measures | `global_level_check()`, `external_check()`, `normalise_arrays()`, `coordination_diagnostic()` | |
+| 4. Model | `select_panels()` or `as_selection()`, then `fit_sem()`, `lrt_structural()`, `test_invariance()`, `decompose_effects()`, `fit_mediation()`, `fit_bifactor()`, `within_between()`, `fit_riclpm()` | lavaan |
+
+VB-ARD is the factor model that `biomimic` introduced: it estimates factors
+and each feature's direct effect jointly. It is one front end among several,
+not a replacement for the others. In SLE blood it matched CATE as an
+adjustment, and found the interferon module in two of four cohorts against
+four of four for WGCNA.
+
+## Example
 
 ```r
 library(biomimic)
-data(neuro_antibodyome)
 
-fit <- biomimic(neuro_antibodyome$proteins,  # 137 samples x 400 features
-                neuro_antibodyome$X,         # intercept + group + age + sex
-                K = 1,                       # latent factors
-                k = 15)                      # indicators to retain
+# Y: samples x genes; group: 0/1
+covs <- data.frame(group = group)
+mods <- modules_wgcna(Y)
+ann  <- annotate_modules(mods, list(interferon = isg, lymphocyte = lym_markers))
+
+# is the interferon panel just each sample's global level?
+global_level_check(Y, head(mods$modules[[ann$module[1]]]$genes, 15), group)
+
+# two factors in one model, with likelihood-ratio tests
+sel <- select_panels(mods, ann$module, k = 15, Y = Y, covariates = covs)
+fit <- fit_sem(sel, type = "multi_mimic", factor_labels = c("Interferon", "Lymphocyte"))
 summary(fit)
+lrt_structural(fit)
+
+# do patients and controls share the measurement model, and if not, why not?
+panels <- lapply(sel$panels, function(p) unname(sel$labels[p]))
+inv <- test_invariance(as_selection(Y, panels[[1]], covs), group_var = "group")
+inv$worst$intercepts
+
+# does each gene differ through the programmes or on its own?
+decompose_effects(scale(Y), panels, targets = rank_limma(Y, covs)$variable[1:200],
+                  group = group)
 ```
 
-```
-=== biomimic SEM Results ===
-Model: MIMIC | Estimator: ML | n = 137
-
---- Model Fit ---
-  Chi-sq = 380.7 (df = 132, p = < 0.001)
-  RMSEA  = 0.117 [0.104, 0.131]  [Poor fit]
-  CFI    = 0.938  [Acceptable]
-  SRMR   = 0.029  [Excellent fit]
-
---- Group Effects on Latent Pathways ---
-  group -> Latent pathway: est = -0.849, SE = 0.196, z = -4.33, p = < 0.001 ***  [-1.233, -0.465]
-  age -> Latent pathway: est = 0.362, SE = 0.088, z = 4.11, p = < 0.001 ***  [0.190, 0.534]
-  sex -> Latent pathway: est = -0.489, SE = 0.149, z = -3.29, p = 0.001 **  [-0.781, -0.197]
-
---- Protein-Pathway Associations (Factor Loadings) ---
-  SSR4 <- Latent pathway: 1.000 (std = 0.960)
-  ZDHHC7 <- Latent pathway: 1.038 (std = 0.939) ***
-  MGC18216 <- Latent pathway: 0.967 (std = 0.938) ***
-  RAMP1 <- Latent pathway: 0.923 (std = 0.952) ***
-  ...
-```
-
-One number carries the group comparison: the latent immunological state is
-lower in AD than in controls (est = -0.849, p < 0.001), adjusted for age and
-sex. The whole run takes under two seconds. The full `lavaan` object remains
-available via `fit$lavaan_fit` for anything the wrapper does not cover.
-
-## What the pipeline does
-
-| Stage | Function | Purpose |
-|---|---|---|
-| 1. Screening | `vb_ard()`, `select_gamma_anchor()` | Ranks all *p* variables by posterior signal-to-noise ratio using a variational Bayes factor model with ARD priors. The Gamma extension simultaneously flags variables whose covariate association bypasses the latent factor; *anchor* indicators (chosen automatically) hold their direct effects at zero so that the structural/direct split is identified. |
-| 2. Selection | `top_k()`, `rank_variables()`, `discover_factors()`, `calibrate_gamma_threshold()` | Retains the top *k* variables and, for multi-factor models, discovers block structure via SVD with varimax rotation. Direct-effect flags can use a parametric-bootstrap threshold that controls the family-wise error rate at 5% (`gamma_threshold = "bootstrap"`). |
-| 3. Estimation | `fit_sem()`, `build_lavaan_model()` | Generates and fits the `lavaan` model: MIMIC, multi-group CFA, MIMIC with direct effects, or multi-factor. |
-
-`biomimic()` chains all three stages in one call. The result is a
-`biomimic_fit` object with `print()`, `summary()`, `coef()`, `confint()` and
-`plot()` methods that report in biological language rather than SEM jargon.
-
-Post-estimation tools: `goodness_of_fit()`, `test_hypotheses()`, `lr_test()`,
-`test_invariance()` (measurement invariance across groups), `diagnose()`,
-`residual_analysis()`, `mahalanobis_distance()`, `predict_scores()`,
-`predict_observed()` and `network_analysis()`.
-
-Plotting helpers include `plot_screening()`, `plot_loadings()`, `plot_path()`,
-`plot_scores()`, `plot_structural_effects()`, `plot_group_effects()`,
-`plot_mediation()`, `plot_residuals()`, `plot_mahalanobis()` and
-`plot_selection_recurrence()`, themed by `theme_biomimic()` and
-`palette_biomimic()`.
-
-Simulation utilities: `simulate_mimic()`, `run_simulation()`, `sim_metrics()`
-and `sim_screening_metrics()`.
-
-## Documentation
-
-```r
-?biomimic                  # pipeline wrapper
-?vb_ard                    # Stage 1 screening
-?fit_sem                   # Stage 3 estimation
-vignette("biomimic")       # worked example, end to end
-help(package = "biomimic") # full index
-```
+`vignette("biomimic")` runs every step on simulated data with known
+structure, including mediation and bifactor models. Each model keeps the
+`lavaan` object (`$lavaan_fit`) for anything the wrappers do not cover.
 
 ## Data
 
-`neuro_antibodyome` is a 400-feature subset (n = 137: 46 AD cases, 91 controls)
-of the ProtoArray data of DeMarshall et al. (2015), GEO accession
+`neuro_antibodyome` is a 400-feature subset (137 sera, 46 AD cases and 91
+controls) of the ProtoArray data of DeMarshall et al. (2015), GEO
 [GSE62283](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE62283). It
-keeps the features selected in the paper plus a reproducible random background
-sample. The full 8,323-feature matrix is available from the accession above.
+is kept as a cautionary example: cases and controls come from disjoint sample
+collections, the panel follows each serum's whole-array level, and the AD
+effect disappears after per-array normalisation (`?neuro_antibodyome`).
 
 ## Citation
 
@@ -141,7 +99,7 @@ sample. The full 8,323-feature matrix is available from the accession above.
 citation("biomimic")
 ```
 
-The manuscript describing the method is in preparation. Until it appears,
+A manuscript describing the package is in preparation. Until it appears,
 please cite the package.
 
 ## License

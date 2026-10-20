@@ -3,9 +3,9 @@
 \docType{package}
 \name{biomimic-package}
 \alias{biomimic-package}
-\title{biomimic: VB-ARD Screening Pipeline for High-Dimensional Latent Variable Models}
+\title{biomimic: A Pipeline from Omics Features to Structural Equation Models}
 \description{
-A three-stage pipeline for latent variable modelling in high-dimensional biological data. Stage 1 uses Variational Bayes with Automatic Relevance Determination (VB-ARD) to screen thousands of candidate variables and identify those with strong latent signal. Stage 2 selects the top-k panel and discovers factor structure via SVD + varimax rotation. Stage 3 fits structural equation models (SEM) using 'lavaan', including MIMIC, multi-group CFA, and MIMIC with direct effects. The VB-ARD screener extends the classical factor model with direct-effect coefficients (Gamma), enabling automatic specification of SEM paths. Designed for antibodyome and proteomics differential analysis.
+Takes high-dimensional omics data to structural equation models fitted with 'lavaan'. Features are ranked by group association ('limma', 'cate', or a variational Bayes factor model with automatic relevance determination, VB-ARD), grouped into modules ('WGCNA', curated gene sets or VB-ARD factors) and checked against each sample's global level before modelling. The chosen panels are then fitted as multi-factor MIMIC models, tested for measurement invariance, used to split each feature's group effect into parts through each factor and an own part, entered as latent mediators, separated from a general factor in bifactor models, or followed over repeated measures with within-between splits and random-intercept cross-lagged panel models (Hamaker, Kuiper and Grasman 2015 \doi{10.1037/a0038889}). Models report likelihood-ratio tests, fit indices and residual diagnostics. VB-ARD estimates factors and each feature's direct effect jointly; it is one front end among several, not a replacement for the others. Written for antibodyome, proteomics and transcriptomics studies.
 }
 \seealso{
 Useful links:

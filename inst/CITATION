@@ -2,7 +2,7 @@ citHeader("To cite biomimic in publications, please use:")
 
 bibentry(
   bibtype  = "Manual",
-  title    = "biomimic: VB-ARD Screening Pipeline for High-Dimensional Latent Variable Models",
+  title    = "biomimic: A Pipeline from Omics Features to Structural Equation Models",
   author   = c(
     person("Alexandre Henrique Carvalho", "Marques"),
     person("Dennyson Leandro M.", "Fonseca"),
@@ -14,8 +14,8 @@ bibentry(
   url      = "https://github.com/ahcm088/biomimic",
   textVersion = paste0(
     "Marques AHC, Fonseca DLM, Cabral-Marques O, Dalmolin RJS (2026). ",
-    "biomimic: VB-ARD Screening Pipeline for High-Dimensional Latent ",
-    "Variable Models. R package version ", meta$Version, ". ",
+    "biomimic: A Pipeline from Omics Features to Structural Equation ",
+    "Models. R package version ", meta$Version, ". ",
     "https://github.com/ahcm088/biomimic"
   )
 )

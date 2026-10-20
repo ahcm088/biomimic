@@ -1,3 +1,125 @@
+# biomimic 0.4.0
+
+The package is reorganised as a pipeline from omics features to structural
+equation models, with the VB-ARD screening as one front end among several.
+The change follows the validation in SLE blood: WGCNA found the interferon
+module in four of four cohorts and the VB-ARD factors in two, while the
+results that replicated came from the structural models, whichever front end
+supplied the panels.
+
+## Modules and selections
+
+* `modules_wgcna()` (signed WGCNA network, soft power by scale-free fit,
+  genes ranked by module membership), `modules_from_sets()` (curated gene
+  sets) and `modules_ard()` (the factors of a `vb_ard()` fit) return modules
+  in one format. `annotate_modules()` names them by known markers.
+* `as_selection()` builds a selection from any named list of panels, and
+  `select_panels()` from the top genes of chosen modules, so every Stage-3
+  function now accepts panels chosen outside the VB-ARD screening. Feature
+  names are made safe for `lavaan` and the originals kept as labels.
+
+## Rankings
+
+* `rank_limma()` and `rank_cate()` (CATE, adjusting each feature for hidden
+  factors) return the columns of `rank_variables()`.
+
+## Diagnostics
+
+* `global_level_check()` correlates a panel with each sample's whole-array
+  mean and re-estimates the group effect adjusted for it; `external_check()`
+  correlates panel scores with external measurements; `normalise_arrays()`
+  applies per-array median or quantile normalisation; `panel_scores()`
+  gives standardised panel means.
+* `coordination_diagnostic()` also reports the correlation of the panel
+  with the global level, and its print no longer reads a high ratio as a
+  coordinated block.
+
+## Structural models
+
+* `fit_bifactor()`: general factor on all indicators, orthogonal specific
+  factors on named panels, covariate paths with Wald and likelihood-ratio
+  tests, and the share of each panel's common variance on the general factor.
+* `fit_mediation()`: latent (panel) or observed mediators, delta-method
+  indirect effects and a likelihood-ratio test per mediator.
+* `decompose_effects()`: each feature's group effect split into parts
+  through each factor and an own part, in parallel.
+* `within_between()` and `fit_sem(cluster = )` for repeated measures;
+  `fit_riclpm()` fits the random-intercept cross-lagged panel model of
+  Hamaker, Kuiper and Grasman (2015).
+* `test_invariance()` returns `worst`, the loadings and intercepts whose
+  equality constraints the data reject most (univariate score tests). A
+  level that does not converge no longer stops the function: its indices
+  are NA (`fit_indices$converged`), its verdict "Could not compute", and
+  every comparison keeps its row, so verdicts can no longer shift against
+  the levels when one likelihood-ratio test fails.
+* `lrt_structural()` adds a `label` column with the factor names of the fit.
+
+## Documentation
+
+* New vignette, on simulated data with known structure, that runs the whole
+  pipeline.
+* `neuro_antibodyome` is now documented as a cautionary example: its AD
+  contrast compares disjoint sample collections and disappears after
+  per-array normalisation.
+
+# biomimic 0.3.5
+
+* `fit_sem()` now checks the orientation of each factor after fitting. lavaan
+  scales a factor by fixing its first (marker) loading to +1, so when the
+  marker anti-correlates with most of the panel, every other loading comes out
+  negative and the sign of `B` flips: "lower in patients" or "higher in
+  patients" then depends on which indicator was listed first. The fit is
+  unchanged by the reflection; only the reading of the sign is. Found in the
+  SLE validation, where three of ten down-sampled panels returned a positive
+  `B` that was the same statement as the other seven's negative one. With the
+  new `orient = TRUE` (default), the marker of a misaligned factor is replaced
+  by its strongest majority-sign indicator and the model refitted; for
+  `type = "direct"` the replacement is drawn only from indicators without a
+  direct effect. The result carries an `orientation` table. Fits whose marker
+  already sided with the majority --- the usual case --- are unchanged.
+* `select_gamma_anchor()` restricts, for `K = 1`, its candidates to indicators
+  with the majority loading sign. The anchor goes first in the Stage-2 panel
+  and becomes the Stage-3 marker, so this removes the problem at its source
+  for panels built by `top_k()`; the check in `fit_sem()` covers panels built
+  any other way.
+* New `lrt_structural()`: likelihood-ratio test of each structural
+  coefficient, by refitting with it fixed at zero, reported next to the Wald
+  test. The Wald z of a marker-scaled `B` depends on the marker (Gonzalez and
+  Griffin 2001). On the SLE transfer panel, all loadings but two one sign, it
+  moved only between p = 0.035 and 0.046 across the 15 possible markers; on a
+  methylation panel whose loadings split 9/6 it moved between p = 0.00002 and
+  0.48. The likelihood-ratio test gave one value for every marker in both.
+* Known, not changed: `fit_sem()`'s default `se = "robust"` makes lavaan
+  replace MLR's Huber-White standard errors with `robust.sem` (expected
+  information), although the documentation says Huber-White. Estimates are
+  unaffected and standard errors move in the third decimal, but the scaled
+  likelihood-ratio test depends on the information type. Left as is pending a
+  decision, because changing it shifts every standard error already reported.
+* `coordination_diagnostic()` reports an empirical p-value per channel, the
+  share of random sets at least as co-ordinated as the panel. It is a fair
+  test for the gamma channel only: lambda selects on co-ordination and beats
+  random sets almost by construction. The documentation and `print()` now
+  also say what a high ratio does not mean --- that the panel carries the
+  design effect. In a methylation check a cell-composition axis owned the
+  lambda channel at ratio 5.5--9.5 while the age signal sat in gamma.
+
+# biomimic 0.3.4
+
+* New `coordination_diagnostic()`, with a `print()` method, reporting for each
+  screening channel how strongly the top-`k` selected variables still co-vary
+  once the design is accounted for, against the background correlation of
+  random variable sets of the same size in the same data. Stage 1 will always
+  return a factor, and ranking by loading SNR will always return the variables
+  that load on whatever the dominant shared mode happens to be --- biology in
+  one dataset, assay structure in another. This separates the two cases before
+  a MIMIC is interpreted. Correlations are computed on residuals after
+  projecting out `X` by default; `reference` restricts them to a subset of
+  samples instead, typically the controls.
+* No threshold is imposed and no verdict is returned, deliberately: the ratio
+  is a property of the assay as much as of the biology. The useful comparison
+  is between channels within one dataset, and the `print()` method gives three
+  measured reference points for scale.
+
 # biomimic 0.3.3
 
 * PSOCK workers start with their own default `.libPaths()` and do not inherit

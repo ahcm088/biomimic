@@ -822,6 +822,11 @@ vb_ard <- function(Y, X, K = 1L,
 #' \code{B}. Ranking by loading SNR alone can and does pick such an indicator,
 #' because a strong loading and a direct effect are not mutually exclusive.
 #'
+#' For \code{K = 1} the pool is first restricted to indicators whose loading
+#' has the majority sign. The anchor becomes the Stage-3 marker, and a marker
+#' that loads against the rest of the panel reverses the sign of \code{B}
+#' without changing anything substantive.
+#'
 #' The tie-break uses the unidentified \code{Gamma} posterior, which is
 #' admittedly circular in principle. It is used only to order candidates that
 #' already qualify on loading strength, never to estimate anything, and the
@@ -857,6 +862,17 @@ select_gamma_anchor <- function(fit, n_anchor = NULL, pool = NULL,
     ranking <- rank_variables(fit, type = "lambda")
     ord     <- match(ranking$variable[seq_len(pool)], fit$var_names)
     Lam     <- fit$mu_lambda
+
+    # K = 1: top_k() puts the anchor first in the panel, so it becomes the
+    # lavaan marker, whose loading is fixed to +1. An anchor that loads against
+    # the majority of the strong indicators reorients the factor and flips the
+    # sign of B. Keep only candidates on the majority side.
+    if (K == 1L) {
+        s     <- sign(Lam[ord, 1])
+        maj   <- if (sum(s > 0) >= sum(s < 0)) 1 else -1
+        agree <- ord[s == maj]
+        if (length(agree) >= n_anchor) ord <- agree
+    }
 
     # Prefer, among these strong-loading candidates, the ones with the weakest
     # direct-effect evidence: anchoring a genuinely impure indicator biases B.

@@ -190,3 +190,116 @@ test_that("biology labels are applied correctly", {
     cf <- coef(fit, type = "loadings")
     expect_true(all(grepl("Protein_", cf$from_label)))
 })
+
+
+# --- Factor orientation (marker sign) ---
+
+# Helper: B = +1 on a factor that every indicator but V1 loads positively on.
+.sim_minority_marker <- function(n = 300, p = 10, seed = 7) {
+    set.seed(seed)
+    X <- cbind(1, rbinom(n, 1, 0.5))
+    colnames(X) <- c("(Intercept)", "group")
+    h <- X %*% c(0, 1) + rnorm(n)
+    lam <- c(-1, rep(1, p - 1))
+    Y <- h %*% t(lam) + matrix(rnorm(n * p, sd = sqrt(0.5)), n, p)
+    colnames(Y) <- paste0("V", seq_len(p))
+    list(Y = Y, X = X)
+}
+
+.b_group <- function(fit) {
+    pe <- lavaan::parameterEstimates(fit$lavaan_fit)
+    pe$est[pe$op == "~" & pe$lhs == "F1" & pe$rhs == "group"]
+}
+
+test_that("a minority-sign marker reverses B when orientation is off", {
+    skip_if_not_installed("lavaan")
+    d <- .sim_minority_marker()
+    sel <- top_k(vb_ard(d$Y, d$X, K = 1, max_iter = 100), k = 10)
+    sel$variables <- c("V1", setdiff(sel$variables, "V1"))
+
+    fit <- fit_sem(sel, type = "mimic", orient = FALSE)
+    expect_equal(fit$orientation$marker, "V1")
+    expect_false(fit$orientation$aligned)
+    expect_lt(.b_group(fit), 0)
+})
+
+test_that("fit_sem reorients a minority-sign marker by default", {
+    skip_if_not_installed("lavaan")
+    d <- .sim_minority_marker()
+    sel <- top_k(vb_ard(d$Y, d$X, K = 1, max_iter = 100), k = 10)
+    sel$variables <- c("V1", setdiff(sel$variables, "V1"))
+
+    fit <- fit_sem(sel, type = "mimic")
+    expect_true(fit$orientation$aligned)
+    expect_false(fit$orientation$marker == "V1")
+    expect_equal(fit$orientation$replaced, "V1")
+    expect_gt(.b_group(fit), 0)
+    expect_equal(fit$orientation$n_neg, 1L)
+})
+
+test_that("an aligned marker is left alone", {
+    skip_if_not_installed("lavaan")
+    d <- .sim_mimic_data()
+    sel <- top_k(vb_ard(d$Y, d$X, K = 1, max_iter = 100), k = 10)
+    fit <- fit_sem(sel, type = "mimic")
+    expect_true(fit$orientation$aligned)
+    expect_equal(fit$orientation$marker, sel$variables[1])
+    expect_true(is.na(fit$orientation$replaced))
+})
+
+test_that("the direct model never reorients onto a direct-effect indicator", {
+    skip_if_not_installed("lavaan")
+    d <- .sim_minority_marker()
+    sel <- top_k(vb_ard(d$Y, d$X, K = 1, max_iter = 100), k = 10)
+    sel$variables <- c("V1", setdiff(sel$variables, "V1"))
+    # Make every majority-sign indicator but one "direct": that one must win.
+    sel$direct_effects <- setdiff(sel$variables, c("V1", "V5"))
+    fit <- suppressWarnings(fit_sem(sel, type = "direct"))
+    expect_equal(fit$orientation$marker, "V5")
+})
+
+test_that("select_gamma_anchor picks a majority-sign anchor for K = 1", {
+    # V1 has the largest loading, so VB-ARD orients the factor on it, and it
+    # is then the only positive loading among ten.
+    set.seed(11)
+    n <- 300; p <- 10
+    X <- cbind(1, rbinom(n, 1, 0.5))
+    colnames(X) <- c("(Intercept)", "group")
+    h <- X %*% c(0, 1) + rnorm(n)
+    lam <- c(-3, rep(1, p - 1))
+    Y <- h %*% t(lam) + matrix(rnorm(n * p, sd = sqrt(0.5)), n, p)
+    colnames(Y) <- paste0("V", seq_len(p))
+
+    vb <- vb_ard(Y, X, K = 1, max_iter = 200)
+    s <- sign(vb$mu_lambda[, 1])
+    maj <- if (sum(s > 0) >= sum(s < 0)) 1 else -1
+    a <- select_gamma_anchor(vb)
+    expect_equal(unname(s[match(a, vb$var_names)]), maj)
+})
+
+test_that("lrt_structural tests every factor path and is marker invariant", {
+    skip_if_not_installed("lavaan")
+    d <- .sim_mimic_data(n = 300)
+    sel <- top_k(vb_ard(d$Y, d$X, K = 1, max_iter = 100), k = 10)
+    fit <- fit_sem(sel, type = "mimic")
+    r <- lrt_structural(fit)
+    expect_equal(r$covariate, "group")
+    expect_true(all(c("p_wald", "p_lrt", "std_estimate") %in% names(r)))
+    expect_lt(r$p_lrt, 0.001)            # B = 1 in the simulation
+
+    # Same model, another marker: the LRT and standardised B do not move.
+    sel2 <- sel
+    sel2$variables <- c(sel$variables[5], setdiff(sel$variables,
+                                                  sel$variables[5]))
+    r2 <- lrt_structural(fit_sem(sel2, type = "mimic"))
+    expect_equal(r2$chisq_diff, r$chisq_diff, tolerance = 1e-3)
+    expect_equal(r2$std_estimate, r$std_estimate, tolerance = 1e-4)
+})
+
+test_that("lrt_structural restricts to the requested covariates", {
+    skip_if_not_installed("lavaan")
+    d <- .sim_mimic_data(n = 200)
+    sel <- top_k(vb_ard(d$Y, d$X, K = 1, max_iter = 100), k = 10)
+    fit <- fit_sem(sel, type = "mimic")
+    expect_error(lrt_structural(fit, covariates = "nope"), "no structural")
+})

@@ -13,6 +13,8 @@ fit_sem(
   se = "robust",
   indicator_labels = NULL,
   factor_labels = NULL,
+  orient = TRUE,
+  cluster = NULL,
   ...
 )
 }
@@ -40,6 +42,16 @@ If \code{NULL}, original variable names are used.}
 \item{factor_labels}{Character vector of names for the latent factors
 (e.g., \code{"Immune activation"}). Length must match K.}
 
+\item{orient}{Logical (default \code{TRUE}). If a factor's marker loads
+against the majority of its indicators, refit with a majority-sign marker
+so that the sign of \code{B} describes the majority of the panel. See
+Details.}
+
+\item{cluster}{Optional vector, one subject identifier per sample, for
+repeated measures: lavaan then reports cluster-robust standard errors
+and test statistics. Combine with \code{\link{within_between}} to
+separate within-subject from between-subject effects.}
+
 \item{...}{Additional arguments passed to \code{lavaan::sem()}.}
 }
 \value{
@@ -52,12 +64,35 @@ A \code{biomimic_fit} object (S3 class) with components:
 \item{indicator_labels}{Named character vector of biology-friendly labels}
 \item{factor_labels}{Character vector of factor names}
 \item{K}{Number of latent factors}
+\item{orientation}{Data frame, one row per factor: \code{marker},
+counts of positive and negative loadings, whether the marker sides
+with the majority, and the marker it replaced (\code{NA} if none)}
 }
 }
 \description{
 Wraps \code{lavaan::sem()} with sensible defaults for biological data.
 Accepts the output of Stage 2 (\code{top_k()}) and returns a
 \code{biomimic_fit} object with biology-friendly methods.
+}
+\details{
+lavaan scales each factor by fixing its first (marker) loading to +1, so
+the factor points the way the marker does. When the marker anti-correlates
+with most of the panel, every loading but the marker's comes out negative
+and \code{B} changes sign: "lower in patients" and "higher in patients"
+then depend on which indicator happened to be listed first. The fit itself
+is unchanged by the reflection; only the reading of the sign is.
+
+With \code{orient = TRUE} the marker of any such factor is replaced by the
+strongest (standardised) majority-sign indicator and the model is refitted.
+For \code{type = "direct"} the replacement is drawn only from indicators
+without a direct effect, which identification requires of the marker. The
+orientation actually used is returned in \code{orientation}.
+
+Orientation fixes the sign of \code{B}, not its test. The Wald z that
+lavaan reports for a marker-scaled coefficient depends on which indicator
+is the marker; on a co-ordinated panel barely, on a panel whose loadings
+split in sign enough to decide significance. \code{\link{lrt_structural}}
+gives the marker-invariant likelihood-ratio test.
 }
 \examples{
 \dontrun{

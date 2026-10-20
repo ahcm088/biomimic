@@ -246,6 +246,10 @@ biomimic <- function(Y, X, K = 1L, k = 15L,
 
 #' @noRd
 .get_covariate_names <- function(selection) {
+    # Selections built by as_selection() carry their covariates directly
+    if (is.null(selection$fit) && !is.null(selection$covariates)) {
+        return(selection$covariates)
+    }
     # Extract covariate names from X, excluding intercept
     xnames <- colnames(selection$fit$X)
     if (!is.null(xnames)) {

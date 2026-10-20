@@ -21,9 +21,16 @@
 #' }
 #'
 #' @details This is a CRAN-sized subset (400 of the 8,323 features) intended
-#'   for examples and for reproducing the package figures; it preserves the
-#'   AD group signal and the age/sex covariates. The full dataset (8,323
-#'   features) can be obtained from GEO accession \code{GSE62283}.
+#'   for examples and for reproducing the package figures. The full dataset
+#'   can be obtained from GEO accession \code{GSE62283}.
+#'
+#'   The AD contrast is a cautionary example, not a finding. Cases and
+#'   controls come from disjoint sample collections and differ in age by
+#'   about 26 years; contrasts between control collections give effects as
+#'   large as the AD one. The panel mean of each serum follows that serum's
+#'   mean over the whole array (r = 0.98), and after per-array normalisation
+#'   (\code{\link{normalise_arrays}}) the AD effect is zero. The data are
+#'   useful for showing what \code{\link{global_level_check}} detects.
 #'
 #' @source Gene Expression Omnibus accession \code{GSE62283}.
 #'
